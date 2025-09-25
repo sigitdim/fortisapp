@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import { rupiah } from "@/lib/format";
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { supabase } from "../../../lib/supabaseClient";   // pakai relatif dulu
+import { rupiah } from "../../../lib/format";             // kalau dipakai
+
 
 type Bahan = {
   id: string;
