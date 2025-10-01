@@ -9,5 +9,3 @@ if (!url || !anon) {
 }
 
 export const supabase = createClient(url, anon);
-console.log("ENV URL =", process.env.NEXT_PUBLIC_SUPABASE_URL);
-console.log("ENV KEY prefix =", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0,10));
