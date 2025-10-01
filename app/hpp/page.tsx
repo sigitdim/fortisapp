@@ -26,15 +26,16 @@ type Komposisi = {
   unit: string;
   owner: string;
 };
-/** HPP final dari backend (+fallback fields) */
-type VHPP = {
+
+/** Row resmi yg dipakai FE (hasil normalisasi dari v_hpp_final) */
+type VHPPFinalRow = {
   produk_id: string;
-  produk: string;
-  hpp_per_porsi: number | null;      // bahan per porsi
-  tenaga_kerja?: number | null;      // (opsional, belum dipakai Backend)
-  overhead?: number | null;          // overhead per porsi
-  hpp_total?: number | null;         // total per porsi
-  target_penjualan_final?: number | null; // NEW dari v_hpp_final
+  nama_produk: string;
+  hpp_bahan_per_porsi: number | null;
+  overhead_per_porsi: number | null;
+  tenaga_kerja_per_porsi?: number | null;
+  hpp_total_per_porsi: number | null;
+  target_penjualan_final?: number | null;
 };
 
 /* ---------- Helpers ---------- */
@@ -44,6 +45,12 @@ const toIDR = (n: number) =>
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(n);
+
+function numberOrNull(v: any): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 /* ===== OVERHEAD PRODUK (tabel) ===== */
 type OverheadProdukRow = { produk_id: string; nilai: number | null };
@@ -64,61 +71,61 @@ async function upsertOverheadProduk(produkId: string, nilai: number | null): Pro
   if (error) throw error;
 }
 
-/* ---------- HPP resolver PRIORITAS v_hpp_final ---------- */
-async function loadHppResolved(pid: string): Promise<VHPP | null> {
-  // 1) PRIORITAS: v_hpp_final dari backend
-  try {
-    const { data: f, error: ef } = await supabase
-      .from("v_hpp_final")
-      .select(
-        "produk_id, nama_produk, hpp_bahan_per_porsi, overhead_per_porsi, hpp_total_per_porsi, target_penjualan_final"
-      )
-      .eq("produk_id", pid)
-      .maybeSingle();
+/* ---------- Loader resmi: HANYA v_hpp_final (select * + normalisasi kolom) ---------- */
+async function fetchHPPFinal(pid: string): Promise<VHPPFinalRow | null> {
+  const { data, error } = await supabase
+    .from("v_hpp_final")
+    .select("*")
+    .eq("produk_id", pid)
+    .maybeSingle();
 
-    if (ef) throw ef;
-    if (f) {
-      return {
-        produk_id: f.produk_id,
-        produk: f.nama_produk,
-        hpp_per_porsi: f.hpp_bahan_per_porsi ?? 0,
-        overhead: f.overhead_per_porsi ?? 0,
-        tenaga_kerja: null,
-        hpp_total:
-          f.hpp_total_per_porsi ??
-          ((f.hpp_bahan_per_porsi ?? 0) + (f.overhead_per_porsi ?? 0)),
-        target_penjualan_final: f.target_penjualan_final ?? null,
-      };
-    }
-  } catch (e) {
-    console.warn("v_hpp_final error:", e);
-  }
+  if (error) throw error;
+  if (!data) return null;
 
-  // 2) Fallback: v_hpp (lama) + overhead_produk
-  try {
-    const { data: vRows, error: errV } = await supabase
-      .from("v_hpp")
-      .select("*")
-      .eq("produk_id", pid)
-      .limit(1);
-    if (errV) throw errV;
+  const anyRow = data as any;
 
-    const vhpp = (vRows?.[0] ?? null) as VHPP | null;
-    if (!vhpp) return null;
+  const row: VHPPFinalRow = {
+    produk_id: anyRow.produk_id ?? anyRow.id ?? pid,
+    nama_produk: anyRow.nama_produk ?? anyRow.produk ?? "",
 
-    const oh = await getOverheadProduk(pid);
-    const overheadVal = Number(oh?.nilai ?? 0);
-    const hppBahan = Number(vhpp.hpp_per_porsi ?? 0);
+    hpp_bahan_per_porsi:
+      numberOrNull(anyRow.hpp_bahan_per_porsi) ??
+      numberOrNull(anyRow.hpp_per_porsi) ??
+      numberOrNull(anyRow.hpp_bahan) ??
+      0,
 
-    return {
-      ...vhpp,
-      overhead: overheadVal,
-      hpp_total: typeof vhpp.hpp_total === "number" ? vhpp.hpp_total : hppBahan + overheadVal,
-    } as VHPP;
-  } catch (e) {
-    console.warn("fallback v_hpp+overhead error:", e);
-    return null;
-  }
+    overhead_per_porsi:
+      numberOrNull(anyRow.overhead_per_porsi) ??
+      numberOrNull(anyRow.overhead) ??
+      0,
+
+    tenaga_kerja_per_porsi:
+      numberOrNull(anyRow.tenaga_kerja_per_porsi) ??
+      numberOrNull(anyRow.tenaga_kerja) ??
+      null,
+
+    hpp_total_per_porsi:
+      numberOrNull(anyRow.hpp_total_per_porsi) ??
+      numberOrNull(anyRow.hpp_total) ??
+      (
+        (numberOrNull(anyRow.hpp_bahan_per_porsi) ??
+          numberOrNull(anyRow.hpp_per_porsi) ??
+          0) +
+        (numberOrNull(anyRow.overhead_per_porsi) ??
+          numberOrNull(anyRow.overhead) ??
+          0) +
+        (numberOrNull(anyRow.tenaga_kerja_per_porsi) ??
+          numberOrNull(anyRow.tenaga_kerja) ??
+          0)
+      ),
+
+    target_penjualan_final:
+      numberOrNull(anyRow.target_penjualan_final) ??
+      numberOrNull(anyRow.target_penjualan) ??
+      0,
+  };
+
+  return row;
 }
 
 /* ---------- Komponen OverheadCard ---------- */
@@ -147,7 +154,7 @@ function OverheadCard({
       const num = val.trim() === "" ? 0 : Number(val);
       if (isNaN(num) || num < 0) throw new Error("Overhead harus angka ≥ 0");
       await upsertOverheadProduk(produkId, num);
-      setMsg("Overhead tersimpan.");
+      setMsg("Overhead tersimpan (tabel backend).");
       onSaved?.();
       setTimeout(() => setMsg(null), 1200);
     } catch (e: any) {
@@ -183,7 +190,7 @@ function OverheadCard({
       {msg && <p className="text-green-700 text-sm">{msg}</p>}
       {err && <p className="text-red-600 text-sm">{err}</p>}
       <p className="text-xs text-gray-500">
-        Disimpan ke tabel <code>overhead_produk</code> dan dipakai backend (<code>v_hpp_final</code>).
+        Disimpan ke tabel <code>overhead_produk</code>. View <code>v_hpp_final</code> akan ikut saat refresh.
       </p>
     </div>
   );
@@ -197,13 +204,15 @@ export default function HPPPage() {
   const [produkList, setProdukList] = useState<Array<Pick<Produk, "id" | "nama_produk">>>([]);
   const [selectedProdukId, setSelectedProdukId] = useState<string>("");
 
-  const [hpp, setHpp] = useState<VHPP | null>(null);
+  // Hanya pakai v_hpp_final
+  const [hppRow, setHppRow] = useState<VHPPFinalRow | null>(null);
+
   const [komposisi, setKomposisi] = useState<
     (Komposisi & { bahan?: Pick<Bahan, "id" | "nama_bahan" | "harga"> })[]
   >([]);
   const [bahanList, setBahanList] = useState<Array<Pick<Bahan, "id" | "nama_bahan" | "satuan">>>([]);
 
-  // detail produk untuk ringkasan profit
+  // detail produk untuk ringkasan profit (harga_jual & porsi disimpan di tabel produk)
   const [produkDetail, setProdukDetail] = useState<
     Pick<Produk, "id" | "nama_produk" | "porsi" | "harga_jual"> | null
   >(null);
@@ -256,6 +265,7 @@ export default function HPPPage() {
     if (!error) setBahanList(data ?? []);
   };
 
+  /** Loader detail utk 1 produk: komposisi + v_hpp_final + produk detail */
   const loadDetailProduk = async (pid: string, uid: string) => {
     // detail produk (harga_jual & porsi)
     const { data: pRow } = await supabase
@@ -267,7 +277,7 @@ export default function HPPPage() {
     setEditHargaJual(pRow?.harga_jual ?? 0);
     setEditPorsi(pRow?.porsi ?? 1);
 
-    // komposisi + join bahan (nama_bahan + harga)
+    // komposisi + join bahan (nama_bahan + harga) → tampilan & kontrol
     const { data: rows, error: errK } = await supabase
       .from("komposisi")
       .select("id,produk_id,bahan_id,qty,unit,owner,bahan:bahan_id(id,nama_bahan,harga)")
@@ -278,56 +288,14 @@ export default function HPPPage() {
     if (!errK) setKomposisi(rows ?? []);
     else console.warn("WARN komposisi:", errK);
 
-    // === RINGKASAN HPP: v_hpp_final -> fallback (view lama) ===
-    const resolved = await loadHppResolved(pid);
-    if (resolved) {
-      setHpp(resolved);
-      return;
-    }
-
-    // === Fallback ke-3: client-side hitung dari komposisi (kalau semua view tidak terbaca) ===
-    const list = rows ?? [];
-    const hppBahanLocal = list.reduce((sum, k) => {
-      const harga = Number(k?.bahan?.harga ?? 0);
-      const qty = Number(k?.qty ?? 0);
-      return sum + harga * qty;
-    }, 0);
-
+    // === HPP resmi dari backend ===
     try {
-      // coba prefill dari view overhead; kalau tidak ada, jatuh ke tabel
-      let overheadVal = 0;
-      try {
-        const { data: ov } = await supabase
-          .from("v_biaya_overhead_per_produk")
-          .select("produk_id, overhead_per_porsi")
-          .eq("produk_id", pid)
-          .maybeSingle();
-        overheadVal = Number(ov?.overhead_per_porsi ?? 0);
-      } catch {
-        const oh = await getOverheadProduk(pid);
-        overheadVal = Number(oh?.nilai ?? 0);
-      }
-
-      setHpp({
-        produk_id: pid,
-        produk: pRow?.nama_produk ?? "",
-        hpp_per_porsi: hppBahanLocal,
-        tenaga_kerja: null,
-        overhead: overheadVal,
-        hpp_total: hppBahanLocal + overheadVal,
-        target_penjualan_final: null,
-      });
+      const v = await fetchHPPFinal(pid);
+      // console.log("RAW v_hpp_final row:", v);
+      setHppRow(v);
     } catch (e) {
-      console.warn("client-side fallback error", e);
-      setHpp({
-        produk_id: pid,
-        produk: pRow?.nama_produk ?? "",
-        hpp_per_porsi: hppBahanLocal,
-        tenaga_kerja: null,
-        overhead: null,
-        hpp_total: hppBahanLocal,
-        target_penjualan_final: null,
-      });
+      console.warn("v_hpp_final error:", e);
+      setHppRow(null);
     }
   };
 
@@ -336,7 +304,7 @@ export default function HPPPage() {
       loadDetailProduk(selectedProdukId, userId);
     } else {
       setKomposisi([]);
-      setHpp(null);
+      setHppRow(null);
       setProdukDetail(null);
     }
     // reset form & error saat ganti produk
@@ -361,16 +329,14 @@ export default function HPPPage() {
     }
   };
 
-  // bahan yang sudah dipakai pada produk terpilih
-  const usedBahanIds = useMemo(() => new Set(komposisi.map((k) => k.bahan_id)), [komposisi]);
-
   const handleAddKomposisi = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     if (!userId || !selectedProdukId || !kompBahanId) return;
 
     // Cegah duplikat bahan di produk yang sama
-    if (usedBahanIds.has(kompBahanId)) {
+    const used = new Set(komposisi.map((k) => k.bahan_id));
+    if (used.has(kompBahanId)) {
       setFormError("Bahan ini sudah ada di komposisi produk.");
       return;
     }
@@ -392,7 +358,7 @@ export default function HPPPage() {
       setKompBahanId("");
       setKompQty(1);
       setKompUnit("gr");
-      await loadDetailProduk(selectedProdukId, userId);
+      await loadDetailProduk(selectedProdukId, userId); // refetch komposisi + v_hpp_final
     } else {
       setFormError(error.message);
     }
@@ -405,7 +371,7 @@ export default function HPPPage() {
     if (!error) await loadDetailProduk(selectedProdukId, userId);
   };
 
-  // Simpan harga jual & porsi
+  // Simpan harga jual & porsi (metadata produk)
   const saveProdukMeta = async () => {
     if (!produkDetail) return;
     setSaving(true);
@@ -417,26 +383,14 @@ export default function HPPPage() {
     if (!error && userId) await loadDetailProduk(produkDetail.id, userId);
   };
 
-  // ---- Angka untuk ringkasan ----
-  const hppBahan = hpp?.hpp_per_porsi ?? null;
-  const tenagaKerja = (hpp as VHPP | null)?.tenaga_kerja ?? null;
-  const overhead = (hpp as VHPP | null)?.overhead ?? null;
-  const hppTotal = useMemo(() => {
-    const v = (hpp as VHPP | null)?.hpp_total ?? null;
-    if (typeof v === "number") return v;
-    if (
-      typeof hppBahan === "number" &&
-      (tenagaKerja == null || typeof tenagaKerja === "number") &&
-      (overhead == null || typeof overhead === "number")
-    ) {
-      const t = (tenagaKerja ?? 0) + (overhead ?? 0);
-      return hppBahan + t;
-    }
-    return null;
-  }, [hpp, hppBahan, tenagaKerja, overhead]);
+  // ---- Angka untuk ringkasan (SEMUA dari v_hpp_final) ----
+  const hppBahan = hppRow?.hpp_bahan_per_porsi ?? null;
+  const tenagaKerja = hppRow?.tenaga_kerja_per_porsi ?? null;
+  const overhead = hppRow?.overhead_per_porsi ?? null;
+  const hppTotal = hppRow?.hpp_total_per_porsi ?? null;
 
-  // Ringkasan profit: pakai HPP total kalau ada, fallback HPP bahan
-  const basisHPP = hppTotal ?? hppBahan ?? null;
+  // Ringkasan profit: pakai HPP total dari backend
+  const basisHPP = hppTotal ?? null;
   const laba = useMemo(() => {
     if (basisHPP == null || !produkDetail) return null;
     return (produkDetail.harga_jual ?? 0) - basisHPP;
@@ -451,7 +405,7 @@ export default function HPPPage() {
 
   return (
     <div className="p-6 space-y-8">
-      <h1 className="text-2xl font-bold">Kalkulator HPP</h1>
+      <h1 className="text-2xl font-bold">Kalkulator HPP (sinkron backend)</h1>
 
       {/* PILIH PRODUK */}
       <section className="space-y-2">
@@ -508,13 +462,13 @@ export default function HPPPage() {
 
       {/* RINGKASAN HPP */}
       <section className="border rounded-xl p-4">
-        <h2 className="font-semibold mb-2">Ringkasan HPP per Porsi</h2>
+        <h2 className="font-semibold mb-2">Ringkasan HPP per Porsi (v_hpp_final)</h2>
         {selectedProdukId ? (
           <div>
-            {hpp ? (
+            {hppRow ? (
               <div className="text-lg space-y-2">
                 <div>
-                  <span className="text-gray-600">Produk:</span> {hpp.produk}
+                  <span className="text-gray-600">Produk:</span> {hppRow.nama_produk}
                 </div>
 
                 {/* Breakdown: bahan + tenaga kerja + overhead */}
@@ -531,16 +485,10 @@ export default function HPPPage() {
                   </div>
 
                   {/* Target penjualan dari backend */}
-                  {typeof hpp.target_penjualan_final === "number" && (
+                  {typeof hppRow.target_penjualan_final === "number" && (
                     <div className="mt-2 text-sm">
                       <span className="text-gray-600">Target penjualan (final):</span>{" "}
-                      {toIDR(hpp.target_penjualan_final)}
-                    </div>
-                  )}
-
-                  {(tenagaKerja == null || overhead == null) && (
-                    <div className="text-xs text-amber-600 mt-1">
-                      Catatan: Kolom tenaga kerja/overhead bisa kosong jika sumber view belum menyediakan.
+                      {toIDR(hppRow.target_penjualan_final)}
                     </div>
                   )}
                 </div>
@@ -598,14 +546,14 @@ export default function HPPPage() {
                   </div>
                 )}
 
-                {/* ===== Overhead editor ===== */}
+                {/* ===== Overhead editor (update tabel → refetch view) ===== */}
                 <div className="mt-4">
                   <OverheadCard
                     produkId={produkDetail?.id}
                     currentOverhead={overhead}
                     onSaved={() => {
                       if (userId && produkDetail) {
-                        loadDetailProduk(produkDetail.id, userId); // refresh angka
+                        loadDetailProduk(produkDetail.id, userId); // refresh v_hpp_final
                       }
                     }}
                   />
@@ -613,7 +561,8 @@ export default function HPPPage() {
               </div>
             ) : (
               <div className="text-sm text-gray-500">
-                Belum ada data HPP untuk produk ini (cek komposisi atau tanya backend apakah view perlu refresh).
+                Belum ada data di <code>v_hpp_final</code> untuk produk ini. Pastikan backend view
+                sudah include produk kamu & RLS sesuai.
               </div>
             )}
           </div>
@@ -633,8 +582,7 @@ export default function HPPPage() {
                   <th className="text-left p-2 border">Bahan</th>
                   <th className="text-left p-2 border">Qty</th>
                   <th className="text-left p-2 border">Unit</th>
-                  <th className="text-left p-2 border">Subtotal</th>
-                  <th className="text-left p-2 border">%</th>
+                  <th className="text-left p-2 border">Subtotal (info)</th>
                   <th className="p-2 border">Aksi</th>
                 </tr>
               </thead>
@@ -642,10 +590,6 @@ export default function HPPPage() {
                 {komposisi.map((k) => {
                   const hargaBahan = k.bahan?.harga ?? 0;
                   const subtotal = (hargaBahan || 0) * (k.qty || 0);
-                  const contrib =
-                    basisHPP && basisHPP > 0
-                      ? Math.round((subtotal / basisHPP) * 100)
-                      : null;
 
                   return (
                     <tr key={k.id}>
@@ -653,7 +597,6 @@ export default function HPPPage() {
                       <td className="p-2 border">{k.qty}</td>
                       <td className="p-2 border">{k.unit}</td>
                       <td className="p-2 border">{toIDR(Math.max(0, Math.round(subtotal)))}</td>
-                      <td className="p-2 border">{contrib == null ? "—" : `${contrib}%`}</td>
                       <td className="p-2 border text-center">
                         <button
                           className="text-red-600"
@@ -667,7 +610,7 @@ export default function HPPPage() {
                 })}
                 {komposisi.length === 0 && (
                   <tr>
-                    <td className="p-2 border text-sm text-gray-500" colSpan={6}>
+                    <td className="p-2 border text-sm text-gray-500" colSpan={5}>
                       Belum ada komposisi.
                     </td>
                   </tr>
@@ -690,14 +633,11 @@ export default function HPPPage() {
                 required
               >
                 <option value="">— pilih bahan —</option>
-                {bahanList.map((b) => {
-                  const already = usedBahanIds.has(b.id);
-                  return (
-                    <option key={b.id} value={b.id} disabled={already}>
-                      {b.nama_bahan} ({b.satuan}){already ? " — sudah dipakai" : ""}
-                    </option>
-                  );
-                })}
+                {bahanList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.nama_bahan} ({b.satuan})
+                  </option>
+                ))}
               </select>
               <input
                 className="border rounded p-2"
@@ -717,7 +657,7 @@ export default function HPPPage() {
                 required
               />
               <div className="self-center text-sm text-gray-500">
-                Harga: ikut master bahan • Unit otomatis
+                Harga: ikut master bahan • Subtotal hanya informasi (HPP resmi dari backend).
               </div>
               <button
                 className="rounded-lg px-4 py-2 bg-black text-white disabled:opacity-50"
