@@ -69,9 +69,6 @@ app.post('/hpp', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`✅ Backend jalan di http://localhost:${PORT}`));
-
 // Ambil riwayat perhitungan (terbaru dulu)
 app.get('/logs', async (req, res) => {
   try {
