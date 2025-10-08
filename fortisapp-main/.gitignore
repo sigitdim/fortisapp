@@ -1,7 +1,7 @@
-# dependencies
-node_modules/
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# package managers
+# dependencies
+/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,19 +11,17 @@ node_modules/
 !.yarn/versions
 
 # testing
-coverage/
+/coverage
 
 # next.js
-.next/
-out/
+/.next/
+/out/
 
 # production
-build/
-dist/
+/build
 
 # misc
 .DS_Store
-Thumbs.db
 *.pem
 
 # debug
@@ -32,13 +30,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (jangan commit secrets)
+# env files (can opt-in for committing if needed)
 .env*
-!.env.example   # tetap boleh commit contoh env
 
 # vercel
-.vercel/
+.vercel
 
 # typescript
 *.tsbuildinfo
-# next-env.d.ts  <-- HAPUS baris ini (biar file tersebut TER-TRACK)
+next-env.d.ts
