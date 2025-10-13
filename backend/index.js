@@ -6,27 +6,105 @@ const { z } = require('zod');
 
 const app = express();
 
+// Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false } }
+);
+
+// Middleware cek admin API key
+function checkAdminKey(req, res, next) {
+  const key = req.headers['x-admin-key'];
+  if (!key || key !== process.env.ADMIN_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+
 // ✅ CORS config: allow frontend di localhost:3000
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: ["http://localhost:3000", "https://app.fortislab.id"],
   methods: ["GET", "POST", "PATCH", "OPTIONS"],
   credentials: true
 }));
 
 app.use(express.json());
 
+// --- Helpers ---
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// Koneksi ke Supabase (pakai SERVICE ROLE)
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+function getOwnerId(req, res) {
+  const ownerId = req.get('x-owner-id') || req.query.owner_id || req.body?.owner_id;
+
+  if (!ownerId) {
+    res.status(400).json({
+      ok: false,
+      error: 'owner_id wajib (header x-owner-id, query ?owner_id=, atau di body JSON)',
+    });
+    return null;
+  }
+
+  if (!UUID_RE.test(ownerId)) {
+    res.status(400).json({
+      ok: false,
+      error: 'owner_id tidak valid (bukan UUID)',
+    });
+    return null;
+  }
+
+  return ownerId;
+}
+
+
+function getPaging(req) {
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+  return { limit, page, from, to };
+}
+
+
+// Routes
+const logs = require("./routes/logs.js");
+app.use("/logs", logs);
+
 
 // Cek server
 app.get('/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
+
+app.get("/pricing/final", async (req, res) => {
+  try {
+    const { produk_id } = req.query;
+    if (!produk_id) {
+      return res.status(400).json({ ok: false, error: "produk_id wajib" });
+    }
+
+    const { data, error } = await supabase
+      .from("v_pricing_final")
+      .select("*")
+      .eq("produk_id", produk_id)
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      ok: true,
+      data,
+    });
+  } catch (err) {
+    console.error("ERR /pricing/final:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+
+
+
 
 // Validasi input
 const HppSchema = z.object({
@@ -121,7 +199,7 @@ app.patch("/pricing/:id", async (req, res) => {
     // Ambil harga lama dulu
     const { data: oldData, error: fetchError } = await supabase
       .from("produk")
-      .select("harga_jual_user, owner")
+      .select("harga_jual_user, owner_id")
       .eq("id", id)
       .single();
 
@@ -138,10 +216,10 @@ app.patch("/pricing/:id", async (req, res) => {
 
     // Simpan log perubahan harga
     await supabase.from("pricing_logs").insert([{
-      produk_id: id,
-      owner_id: oldData.owner,
-      harga_lama: oldData.harga_jual_user,
-      harga_baru: harga_jual_user
+       produk_id: id,
+       owner_id: oldData.owner_id,
+       harga_lama: oldData.harga_jual_user,
+       harga_baru: harga_jual_user
     }]);
 
     res.json({ ok: true, data });
@@ -163,7 +241,7 @@ app.patch("/bahan/:id", async (req, res) => {
     // 1. Ambil data bahan lama
     const { data: oldData, error: fe } = await supabase
       .from("bahan")
-      .select("harga, owner")
+      .select("harga, owner_id")
       .eq("id", id)
       .single();
     if (fe || !oldData) return res.status(400).json({ error: fe?.message || "Bahan not found" });
@@ -201,7 +279,7 @@ app.patch("/bahan/:id", async (req, res) => {
     // 5. Simpan log bahan
     await supabase.from("bahan_logs").insert([{
       bahan_id: id,
-      owner_id: oldData.owner,
+      owner_id: oldData.owner_id,
       harga_lama,
       harga_baru,
       changed_by: changed_by || null
@@ -268,7 +346,528 @@ app.get("/bahan/logs/:id", async (req, res) => {
   }
 });
 
+// --- Normalizer: paksa schema flat untuk /pricing/final ---
+function normalizePricingRow(row = {}) {
+  const hpp = row.hpp || {};
+  return {
+    produk_id: row.produk_id || row.id || null,
+    total_hpp:
+      row.total_hpp ??
+      row.hpp_total_per_porsi ??
+      hpp.total_hpp ??
+      hpp.hpp_total_per_porsi ??
+      0,
+    bahan_per_porsi:
+      row.bahan_per_porsi ??
+      hpp.bahan_per_porsi ??
+      0,
+    overhead_per_porsi:
+      row.overhead_per_porsi ??
+      hpp.overhead_per_porsi ??
+      0,
+    tenaga_kerja_per_porsi:
+      row.tenaga_kerja_per_porsi ??
+      hpp.tenaga_kerja_per_porsi ??
+      0,
+  };
+}
+
+
+// GET /pricing/final → hitung total HPP
+app.get("/pricing/final", async (req, res) => {
+  const owner_id = req.headers["x-owner-id"];
+  const produk_id = req.query.produk_id;
+
+  try {
+    // ✅ validasi produk_id sebelum lanjut
+const isUUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+if (!isUUID.test(produk_id)) {
+  return res.status(400).json({ ok: false, error: "produk_id must be a valid UUID" });
+}
+
+    // 🧮 ambil data HPP bahan
+    const { data: bahanData } = await supabase
+      .from("v_hpp_final")
+      .select("hpp_per_porsi")
+      .eq("produk_id", produk_id)
+      .maybeSingle();
+
+    const bahan_per_porsi = bahanData?.hpp_per_porsi || 0;
+
+    // ambil overhead
+    const { data: overheadData } = await supabase
+      .from("overhead_per_produk")
+      .select("overhead_per_porsi")
+      .eq("produk_id", produk_id)
+      .maybeSingle();
+
+    const overhead_per_porsi = overheadData?.overhead_per_porsi || 0;
+
+    // ambil tenaga kerja
+    const { data: tenagaData } = await supabase
+      .from("tenaga_kerja_produk")
+      .select("tenaga_kerja_per_porsi")
+      .eq("produk_id", produk_id)
+      .maybeSingle();
+
+    const tenaga_kerja_per_porsi = tenagaData?.tenaga_kerja_per_porsi || 0;
+
+    // total
+    const total_hpp =
+      (bahan_per_porsi || 0) +
+      (overhead_per_porsi || 0) +
+      (tenaga_kerja_per_porsi || 0);
+
+    // ✅ schema flat untuk FE
+    const dataFlat = {
+      produk_id,
+      total_hpp,
+      bahan_per_porsi,
+      overhead_per_porsi,
+      tenaga_kerja_per_porsi,
+    };
+
+    res.json({ ok: true, data: dataFlat });
+
+    // logging async di belakang layar
+    supabase
+      .from("hpp_logs_new")
+      .insert([
+        {
+          owner_id,
+          produk_id,
+          bahan_per_porsi,
+          overhead_per_porsi,
+          tenaga_kerja_per_porsi,
+          total_hpp,
+          note: "Hit from /pricing/final",
+          created_at: new Date().toISOString(),
+        },
+      ])
+      .then(() =>
+        console.log(
+          `[LOGGED] hpp_logs_new ok -> produk_id=${produk_id}, owner_id=${owner_id}`
+        )
+      )
+      .catch((logError) =>
+        console.error("Gagal insert log:", logError.message)
+      );
+  } catch (err) {
+    console.error("[/pricing/final] error:", err.message);
+    res
+      .status(500)
+      .json({ ok: false, error: "internal_error", detail: err.message });
+  }
+});
+
+app.get('/hpp', async (req, res) => {
+  try {
+    const { produk_id } = req.query;
+    if (!produk_id) return res.status(400).json({ ok: false, msg: 'produk_id wajib' });
+
+    // ambil dari view HPP final (sesuai yang kita pakai)
+    const { data, error } = await supabase
+      .from('v_hpp_final_new')
+      .select('produk_id, total_hpp, bahan_per_porsi, overhead_per_porsi, tenaga_kerja_per_porsi')
+      .eq('produk_id', produk_id)
+      .single();
+
+    if (error) return res.status(500).json({ ok: false, error: error.message });
+    if (!data) return res.status(404).json({ ok: false, msg: 'Produk tidak ditemukan' });
+
+    return res.json({ ok: true, data });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/promo', async (req, res) => {
+  try {
+    // ambil semua produk dengan HPP & harga jual user
+    const { data, error } = await supabase
+      .from('v_pricing_final')
+      .select('produk_id, nama_produk, total_hpp, harga_rek_standar, harga_jual_user');
+
+    if (error) throw error;
+
+    // hitung margin
+    const result = data.map(p => ({
+      produk_id: p.produk_id,
+      nama_produk: p.nama_produk,
+      total_hpp: p.total_hpp,
+      harga_jual_user: p.harga_jual_user,
+      margin_persen: p.harga_rek_standar && p.hpp_total_per_porsi
+  ? ((p.harga_rek_standar - p.hpp_total_per_porsi) / p.harga_rek_standar * 100).toFixed(1)
+  : 0
+
+    }));
+
+    // urutkan dari margin tertinggi
+    result.sort((a, b) => b.margin_persen - a.margin_persen);
+
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// === GET /setup/get ===
+// Ambil ulang data setup user (bahan, overhead, tenaga kerja)
+app.get('/setup/get', async (req, res) => {
+  try {
+    const { owner_id } = req.query;
+    if (!owner_id) return res.status(400).json({ ok: false, message: "owner_id wajib diisi" });
+
+const { data: bahan } = await supabase.from('bahan').select('*').eq('owner_id', owner_id);
+const { data: overhead } = await supabase.from('overhead').select('*').eq('owner_id', owner_id);
+const { data: tenaga_kerja } = await supabase.from('tenaga_kerja').select('*').eq('owner_id', owner_id);
+
+
+    // Simpan log
+    await supabase.from('setup_logs').insert({
+      owner_id,
+      endpoint: '/setup/get',
+      created_at: new Date().toISOString()
+    });
+
+    res.json({
+      ok: true,
+      data: { bahan, overhead, tenaga_kerja }
+    });
+
+  } catch (error) {
+    console.error('Error /setup/get:', error);
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+
+app.post('/setup/init', async (req, res) => {
+  try {
+    const { owner_id } = req.body;
+    if (!owner_id) return res.status(400).json({ ok: false, msg: 'owner_id wajib' });
+
+    // template data awal
+    const bahan = [
+      { owner_id, nama_bahan: 'Kopi', satuan: 'gram', harga: 0 },
+      { owner_id, nama_bahan: 'Gula', satuan: 'gram', harga: 0 },
+      { owner_id, nama_bahan: 'Air', satuan: 'ml', harga: 0 }
+    ];
+
+    const overhead = [
+      { owner_id, nama_overhead: 'Listrik', biaya_bulanan: 0 },
+      { owner_id, nama_overhead: 'Sewa', biaya_bulanan: 0 },
+      { owner_id, nama_overhead: 'Lain-lain', biaya_bulanan: 0 }
+    ];
+
+
+    const tenagaKerja = [
+{ owner_id, nama: 'Barista', jabatan: 'Produksi', gaji: 0, role: 'Barista', rate_type: 'per_bulan', rate_amount: 0, jam_kerja_per_hari: 8, hari_kerja_per_bulan: 26 },
+      { owner_id, nama: 'Kasir', jabatan: 'Operasional', gaji: 0, role: 'Kasir', rate_type: 'per_bulan', rate_amount: 0, jam_kerja_per_hari: 8, hari_kerja_per_bulan: 26 }
+    ];
+
+    // insert paralel
+    const [bahanRes, overheadRes, tenagaRes] = await Promise.all([
+      supabase.from('bahan').insert(bahan),
+      supabase.from('overhead').insert(overhead),
+      supabase.from('tenaga_kerja').insert(tenagaKerja)
+    ]);
+
+      if (bahanRes.error) throw new Error(`bahan gagal: ${bahanRes.error.message}`);
+if (overheadRes.error) throw new Error(`overhead gagal: ${overheadRes.error.message}`);
+if (tenagaRes.error) throw new Error(`tenaga kerja gagal: ${tenagaRes.error.message}`);
+
+
+    res.json({ ok: true, msg: 'Setup awal selesai' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+
+
+// GET /logs/overhead
+app.get('/logs/overhead', async (req, res, next) => {
+  try {
+    const ownerId = getOwnerId(req, res);
+    if (!ownerId) return;
+
+    const { from, to } = getPaging(req);
+
+    const { data, error } = await supabase
+      .from('overhead_entries')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) return next(error);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /logs/tenaga_kerja
+app.get('/logs/tenaga_kerja', async (req, res, next) => {
+  try {
+    const ownerId = getOwnerId(req, res);
+    if (!ownerId) return;
+
+    const { from, to } = getPaging(req);
+
+    const { data, error } = await supabase
+      .from('tenaga_kerja_usage')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) return next(error);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// STEP 1: Kerangka endpoint PROMO
+const ALLOWED_PROMO_TYPES = new Set(['diskon','b1g1','tebus','bundling']);
+
+app.post('/promo', async (req, res) => {
+  try {
+    const owner_id = req.headers['x-owner-id'];
+    const { produk_id, type, options = {} } = req.body || {};
+
+
+    if (!owner_id) return res.status(400).json({ ok:false, error: 'owner_id wajib' });
+    if (!produk_id) return res.status(400).json({ ok:false, error: 'produk_id wajib' });
+    if (!type || !ALLOWED_PROMO_TYPES.has(type)) {
+      return res.status(400).json({ ok:false, error: 'type harus: diskon | b1g1 | tebus | bundling' });
+    }
+
+// --- STEP 2: Ambil data dasar dari view ---
+const { data: baseData, error: baseErr } = await supabase
+  .from('v_pricing_final')
+  .select('hpp_per_porsi, harga_jual_user, harga_rekomendasi_standard')
+  .eq('owner_id', owner_id)
+  .eq('produk_id', produk_id)
+  .single();
+
+if (baseErr || !baseData) {
+  return res.status(404).json({ ok:false, error: 'Data produk tidak ditemukan di v_pricing_final' });
+}
+
+// tentukan harga_awal
+const harga_awal = baseData.harga_jual_user || baseData.harga_rekomendasi_standard;
+const hpp_per_porsi = baseData.hpp_per_porsi;
+
+// --- STEP 3: Hitung Diskon (type: diskon) ---
+let calc = null;
+let flag = null;
+let notes = null;
+
+if (type === 'diskon') {
+  const { percent = 0, nominal = 0 } = options;
+
+  // tentuin potongan
+  let potongan = 0;
+  if (percent > 0) potongan = harga_awal * (percent / 100);
+  else if (nominal > 0) potongan = nominal;
+
+  const harga_promo = Math.max(harga_awal - potongan, 0);
+
+  // hitung margin
+  const margin_promo = harga_promo > 0
+    ? (harga_promo - hpp_per_porsi) / harga_promo
+    : 0;
+
+  // flag resiko
+  if (margin_promo >= 0.25) {
+    flag = 'aman';
+    notes = 'Margin aman di atas 25%';
+  } else if (margin_promo >= 0.15) {
+    flag = 'tipis';
+    notes = 'Margin tipis (15–25%)';
+  } else {
+    flag = 'bahaya';
+    notes = 'Margin di bawah 15%, rawan tekor';
+  }
+
+  calc = {
+    harga_promo,
+    potongan,
+    margin_promo,
+    margin_delta: margin_promo - 0.25
+  };
+}
+
+// --- BUY 1 GET 1 ---
+else if (type === 'b1g1') {
+  const { beli = 1, bonus = 1 } = options;
+  const effective_price = harga_awal * (beli / (beli + bonus));
+
+  const margin_promo = (effective_price - hpp_per_porsi) / effective_price;
+
+  if (margin_promo >= 0.25) {
+    flag = 'aman';
+    notes = 'Margin aman di atas 25% meski promo B1G1.';
+  } else if (margin_promo >= 0.15) {
+    flag = 'tipis';
+    notes = 'Margin tipis (15–25%) untuk B1G1.';
+  } else {
+    flag = 'bahaya';
+    notes = 'Margin di bawah 15%, B1G1 ini rawan tekor.';
+  }
+
+  calc = {
+    harga_promo: effective_price,
+    potongan: harga_awal - effective_price,
+    margin_promo,
+    margin_delta: margin_promo - 0.25
+  };
+}
+
+// --- TEBUS MURAH ---
+else if (type === 'tebus') {
+  const { min_qty = 2, tebus_price = 0 } = options;
+
+  // harga rata-rata per item
+  const total_qty = min_qty + 1;
+  const total_price = (min_qty * harga_awal) + tebus_price;
+  const effective_price = total_price / total_qty;
+
+  const margin_promo = (effective_price - hpp_per_porsi) / effective_price;
+
+  if (margin_promo >= 0.25) {
+    flag = 'aman';
+    notes = 'Tebus murah masih aman.';
+  } else if (margin_promo >= 0.15) {
+    flag = 'tipis';
+    notes = 'Margin tipis di promo tebus murah.';
+  } else {
+    flag = 'bahaya';
+    notes = 'Promo tebus murah rawan rugi.';
+  }
+
+  calc = {
+    harga_promo: effective_price,
+    margin_promo,
+    margin_delta: margin_promo - 0.25
+  };
+}
+
+// --- BUNDLING ---
+else if (type === 'bundling') {
+  const { items = [] } = options;
+  if (!items.length) {
+    return res.status(400).json({ ok: false, error: 'Daftar produk bundling kosong' });
+  }
+
+  // hitung total harga & total hpp
+  const totalHarga = items.reduce((sum, i) => sum + (i.harga || 0) * (i.qty || 1), 0);
+  const totalHPP = items.reduce((sum, i) => sum + (i.hpp || 0) * (i.qty || 1), 0);
+
+  const margin_promo = (totalHarga - totalHPP) / totalHarga;
+
+  if (margin_promo >= 0.25) {
+    flag = 'aman';
+    notes = 'Bundling margin aman.';
+  } else if (margin_promo >= 0.15) {
+    flag = 'tipis';
+    notes = 'Bundling margin tipis.';
+  } else {
+    flag = 'bahaya';
+    notes = 'Bundling margin rendah.';
+  }
+
+  calc = {
+    totalHarga,
+    totalHPP,
+    margin_promo,
+    margin_delta: margin_promo - 0.25
+  };
+}
+
+// --- STEP LOGGING PROMO ---
+const { data: logData, error: logErr } = await supabase
+  .from('promo_logs')
+  .insert([
+    {
+      owner_id,
+      produk_id,
+      type,
+      options,
+      calc,
+      flag,
+      notes
+    }
+  ])
+  .select('*'); // biar bisa liat respon balik
+
+if (logErr) {
+  console.error('❌ Gagal insert promo_logs:', logErr);
+} else {
+  console.log('✅ Promo log berhasil masuk:', logData);
+}
+
+
+    // sementara: echo input buat bukti kerangka siap
+return res.json({
+  ok: true,
+  type,
+  input: { owner_id, produk_id, options },
+  base: { hpp_per_porsi, harga_awal },
+  calc,
+  flag,
+  notes
+});
+
+
+  } catch (err) {
+    console.error('POST /promo error:', err);
+    return res.status(500).json({ ok:false, error:'server_error' });
+  }
+});
+
+// === GET /logs/promo ===
+app.get('/logs/promo', async (req, res, next) => {
+  try {
+    const ownerId = getOwnerId(req, res);
+    if (!ownerId) return;
+
+    const { from, to } = getPaging(req);
+
+    const { data, error } = await supabase
+      .from('v_promo_history')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) return next(error);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// === ROUTER SETUP ===
+const setupRouter = require('./routes/setup');
+app.use('/setup', setupRouter);
+
+// --- PORT & GLOBAL ERROR HANDLER ---
 const PORT = process.env.PORT || 4000;
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("ERR:", err);
+  res.status(err.statusCode || 500).json({
+    ok: false,
+    error: err.message || "Internal Server Error",
+  });
+});
+
 
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
