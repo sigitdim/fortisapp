@@ -1,6 +1,5 @@
 "use client";
 import { ReactNode, useEffect, useState } from "react";
-import { OwnerProvider } from "@/app/providers/owner-provider";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -17,15 +16,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setEmail(s?.user?.email ?? null);
     });
-    return (
-    <OwnerProvider>) => sub.subscription.unsubscribe();
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   const goLogin = () => router.push("/login?stay=1");
   const logout = async () => { await supabase.auth.signOut(); router.replace("/login"); };
 
   return (
-    <OwnerProvider>
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <div className="flex">
         {/* Sidebar */}
@@ -65,6 +62,5 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
     </div>
-    </OwnerProvider>
   );
 }

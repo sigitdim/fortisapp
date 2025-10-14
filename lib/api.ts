@@ -1,18 +1,17 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://api.fortislab.id";
 
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+export async function apiGet<T>(path: string, ownerId?: string | null, init?: RequestInit) {
+  const r = await fetch(`${API_BASE}${path}`, {
     ...init,
-    // credentials/headers bisa ditambah di sini kalau perlu
     headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
+      ...(init?.headers ?? {}),
+      "x-owner-id": ownerId ?? "",
     },
-    // mode: 'cors' // default sudah cors di browser
+    cache: "no-store",
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GET ${path} failed: ${res.status} ${text}`);
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`GET ${path} -> ${r.status} ${r.statusText} ${text}`);
   }
-  return res.json() as Promise<T>;
+  return (await r.json()) as T;
 }
