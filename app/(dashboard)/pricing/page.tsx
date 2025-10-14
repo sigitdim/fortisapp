@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOwner } from "@/app/providers/owner-provider";
 import { usePricingFinal } from "@/lib/usePricingFinal";
 import { updateHargaJualUser } from "@/lib/updateHarga";
+import { fetchProdukList, Produk } from "@/lib/products";
+import { toRupiah, parseNumber } from "@/lib/rupiah";
 
 type ApiResp = {
   ok: boolean;
@@ -21,57 +23,63 @@ type ApiResp = {
 
 export default function PricingPage() {
   const { ownerId } = useOwner();
+
+  // list produk dari supabase
+  const [produkList, setProdukList] = useState<Produk[]>([]);
   const [produkId, setProdukId] = useState<string>("");
   const [refresh, setRefresh] = useState(0);
 
+  useEffect(() => {
+    fetchProdukList().then(setProdukList).catch(console.error);
+  }, []);
+
   const { data, loading, err } = usePricingFinal(produkId, ownerId);
-  // data dari hook kita tampilkan sebagai ApiResp (longgar)
   const api = (data as unknown as ApiResp) || null;
 
-  // state harga yang bisa diedit
   const [hargaEdit, setHargaEdit] = useState<string>("");
 
-  // sinkronkan hargaEdit saat data baru masuk
-  const hargaJual = api?.data?.harga_jual_user ?? 0;
+  // sinkron harga edit saat produk / data berubah
+  useEffect(() => {
+    const hj = api?.data?.harga_jual_user ?? 0;
+    setHargaEdit(hj ? String(hj) : "");
+  }, [api?.data?.harga_jual_user, produkId]);
+
   const hpp = api?.data?.hpp_per_porsi ?? 0;
   const rekom = api?.data?.harga_rekomendasi_standard ?? null;
 
-  const profit = useMemo(() => Math.max(0, (Number(hargaEdit || hargaJual || 0) || 0) - (hpp || 0)), [hargaEdit, hargaJual, hpp]);
-  const marginPct = useMemo(() => {
-    const h = Number(hargaEdit || hargaJual || 0) || 0;
-    return h > 0 ? (profit / h) * 100 : 0;
-  }, [profit, hargaEdit, hargaJual]);
+  const hargaNumber = useMemo(() => parseNumber(hargaEdit), [hargaEdit]);
+  const profit = useMemo(() => Math.max(0, (hargaNumber || 0) - (hpp || 0)), [hargaNumber, hpp]);
+  const marginPct = useMemo(() => (hargaNumber > 0 ? (profit / hargaNumber) * 100 : 0), [profit, hargaNumber]);
 
-  const applyRekom = () => {
-    if (rekom) setHargaEdit(String(rekom));
-  };
+  const applyRekom = () => { if (rekom != null) setHargaEdit(String(rekom)); };
 
   const saveHarga = async () => {
-    const nilai = Number(hargaEdit || hargaJual || 0);
-    if (!produkId || isNaN(nilai)) return;
-    await updateHargaJualUser(produkId, nilai);
-    // paksa re-fetch
-    setRefresh((x) => x + 1);
-  };
-
-  // efek kecil: kalau produkId berubah / data baru, set nilai edit awal
-  const initHarga = () => {
-    setHargaEdit(hargaJual ? String(hargaJual) : "");
+    if (!produkId) return alert("Pilih produk dulu");
+    try {
+      await updateHargaJualUser(produkId, hargaNumber);
+      alert("Harga tersimpan");
+      setRefresh((x) => x + 1); // trigger re-fetch
+    } catch (e: any) {
+      alert("Gagal simpan: " + e.message);
+    }
   };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Pricing</h1>
 
-      {/* pilih produk id (sementara manual; nanti ganti dropdown list produk) */}
-      <div className="flex gap-2 items-center">
-        <input
+      {/* Picker produk */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <select
           className="border rounded px-3 py-2 w-[460px]"
-          placeholder="produk_id (UUID)"
           value={produkId}
           onChange={(e) => { setProdukId(e.target.value); setRefresh((x)=>x+1); }}
-        />
-        <button className="border rounded px-4 py-2" onClick={initHarga}>Load</button>
+        >
+          <option value="">— Pilih produk —</option>
+          {produkList.map((p) => (
+            <option key={p.id} value={p.id}>{p.nama_produk}</option>
+          ))}
+        </select>
         {ownerId ? (
           <div className="text-xs text-gray-500">owner: {ownerId}</div>
         ) : (
@@ -79,11 +87,10 @@ export default function PricingPage() {
         )}
       </div>
 
-      {/* status */}
       {loading && <div>Loading…</div>}
       {err && <div className="text-red-600">Error: {err}</div>}
 
-      {/* kartu ringkasan */}
+      {/* Ringkasan */}
       {api?.ok && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="rounded-2xl border p-4">
@@ -92,18 +99,16 @@ export default function PricingPage() {
           </div>
           <div className="rounded-2xl border p-4">
             <div className="text-gray-600 mb-1">HPP / Porsi</div>
-            <div className="text-xl font-semibold">{hpp.toLocaleString("id-ID")}</div>
+            <div className="text-xl font-semibold">{toRupiah(hpp)}</div>
           </div>
           <div className="rounded-2xl border p-4">
             <div className="text-gray-600 mb-1">Rekomendasi (Std)</div>
-            <div className="text-xl font-semibold">
-              {rekom != null ? rekom.toLocaleString("id-ID") : "-"}
-            </div>
+            <div className="text-xl font-semibold">{rekom != null ? toRupiah(rekom) : "-"}</div>
           </div>
         </div>
       )}
 
-      {/* editor harga + profit */}
+      {/* Editor harga */}
       {api?.ok && (
         <div className="rounded-2xl border p-4 space-y-3">
           <div className="text-lg font-medium">Harga Jual</div>
@@ -113,6 +118,7 @@ export default function PricingPage() {
               placeholder="harga jual"
               value={hargaEdit}
               onChange={(e) => setHargaEdit(e.target.value)}
+              onBlur={(e) => setHargaEdit(String(parseNumber(e.target.value)))}
             />
             <button className="border rounded px-4 py-2" onClick={applyRekom} disabled={rekom == null}>
               Gunakan Rekomendasi
@@ -125,13 +131,11 @@ export default function PricingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
             <div className="rounded-xl border p-3">
               <div className="text-gray-600 text-sm">Harga Jual</div>
-              <div className="text-xl font-semibold">
-                {(Number(hargaEdit || hargaJual || 0) || 0).toLocaleString("id-ID")}
-              </div>
+              <div className="text-xl font-semibold">{toRupiah(hargaNumber)}</div>
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-gray-600 text-sm">Profit / Porsi</div>
-              <div className="text-xl font-semibold">{profit.toLocaleString("id-ID")}</div>
+              <div className="text-xl font-semibold">{toRupiah(profit)}</div>
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-gray-600 text-sm">Margin</div>
@@ -139,13 +143,11 @@ export default function PricingPage() {
             </div>
           </div>
 
-          {api.data.note && (
-            <div className="text-sm text-gray-500 mt-2">Note: {api.data.note}</div>
-          )}
+          {api.data.note && <div className="text-sm text-gray-500 mt-2">Note: {api.data.note}</div>}
         </div>
       )}
 
-      {/* debug minimal (boleh dihapus kalau sudah oke) */}
+      {/* debug (bisa dihapus) */}
       {api && (
         <details className="rounded-2xl border p-3">
           <summary className="cursor-pointer">Raw response</summary>
