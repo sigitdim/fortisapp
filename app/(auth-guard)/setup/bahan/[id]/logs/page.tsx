@@ -54,13 +54,17 @@ export default function LogsPage() {
     }));
   }, [data]);
 
-  const latestPrice = useMemo(() => (data?.series?.length ? data.series[data.series.length - 1].y : null), [data]);
+  const latestPrice = useMemo(
+    () => (data?.series?.length ? data.series[data.series.length - 1].y : null),
+    [data]
+  );
 
   async function fetchLogs() {
     if (badId) return;
     setErr(null);
     try {
-      const r = await fetch(`/api/bahan/logs/${id}`, { cache: "no-store" });
+      // ⬇️ Diselaraskan dengan proxy: /api/bahan/:id/logs
+      const r = await fetch(`/api/bahan/${id}/logs`, { cache: "no-store" });
       if (!r.ok) throw new Error(`GET logs failed: ${r.status}`);
       const j = (await r.json()) as LogsResp;
       setData(j);
@@ -151,7 +155,7 @@ export default function LogsPage() {
           </button>
         </div>
         <div className="text-xs text-neutral-500 mt-2">
-          Endpoint proxy: <code>/api/bahan/{id || "[id]"}</code> (body: {"{ harga_baru: number }"})
+          Endpoint proxy: <code>/api/bahan/{id || "[id]"}/logs</code> (GET) &nbsp;•&nbsp; <code>/api/bahan/{id || "[id]"}</code> (PATCH)
         </div>
         {err && <div className="text-red-600 mt-3 text-sm">Error: {err}</div>}
       </div>

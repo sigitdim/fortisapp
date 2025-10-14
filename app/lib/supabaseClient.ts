@@ -1,3 +1,4 @@
+// lib/supabaseClient.ts
 import { createClient } from "@supabase/supabase-js";
 
 const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -8,4 +9,9 @@ if (!url || !anon) {
   throw new Error("Missing Supabase credentials. Isi .env.local lalu restart dev server.");
 }
 
-export const supabase = createClient(url, anon);
+export const supabase = createClient(url, anon, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});

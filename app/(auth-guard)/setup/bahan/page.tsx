@@ -1,11 +1,14 @@
-// app/(auth-guard)/setup/bahan/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient"; // gunakan alias @ (tsconfig sudah diset)
 import formatDefault, * as format from "@/lib/format";
+import { toast } from "sonner";
 
-// Robust rupiah proxy: works whether lib/format exports named or default
+/* =========================
+   UTIL: Rupiah (robust)
+   ========================= */
 const rupiah = (
   n?: number | null,
   opts: { minimumFractionDigits?: number; maximumFractionDigits?: number } = {}
@@ -22,9 +25,9 @@ const rupiah = (
   }).format(num);
 };
 
- // namespace import → aman untuk named + default export
-
-// ===== Types =====
+/* =========================
+   TYPES
+   ========================= */
 type Bahan = {
   id: string;
   created_at: string;
@@ -44,7 +47,9 @@ export default function SetupBahanPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // ===== Data =====
+  /* =========================
+     LOAD DATA
+     ========================= */
   const load = async () => {
     setLoading(true);
     setErr(null);
@@ -52,16 +57,23 @@ export default function SetupBahanPage() {
       .from("bahan")
       .select("id, created_at, nama_bahan, satuan, harga")
       .order("created_at", { ascending: false });
-    if (error) setErr(error.message);
-    else setItems((data as Bahan[]) ?? []);
     setLoading(false);
+
+    if (error) {
+      setErr(error.message);
+      toast.error(error.message);
+    } else {
+      setItems((data as Bahan[]) ?? []);
+    }
   };
 
   useEffect(() => {
     load();
   }, []);
 
-  // ===== Create =====
+  /* =========================
+     CREATE
+     ========================= */
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
@@ -69,7 +81,9 @@ export default function SetupBahanPage() {
 
     const hargaNum = Number(harga);
     if (!nama.trim() || !satuan.trim() || !Number.isFinite(hargaNum) || hargaNum < 0) {
-      setErr("Isi nama_bahan & satuan, dan pastikan harga angka ≥ 0.");
+      const m = "Isi nama_bahan & satuan, dan pastikan harga angka ≥ 0.";
+      setErr(m);
+      toast.error(m);
       return;
     }
 
@@ -79,9 +93,12 @@ export default function SetupBahanPage() {
       .insert([{ nama_bahan: nama.trim(), satuan: satuan.trim(), harga: hargaNum }]);
     setLoading(false);
 
-    if (error) setErr(error.message);
-    else {
+    if (error) {
+      setErr(error.message);
+      toast.error(error.message);
+    } else {
       setMsg("Berhasil menambah bahan.");
+      toast.success("Bahan ditambahkan");
       setNama("");
       setSatuan("gram");
       setHarga("");
@@ -89,7 +106,9 @@ export default function SetupBahanPage() {
     }
   };
 
-  // ===== Update =====
+  /* =========================
+     UPDATE
+     ========================= */
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing) return;
@@ -101,7 +120,9 @@ export default function SetupBahanPage() {
       !Number.isFinite(hargaNum) ||
       hargaNum < 0
     ) {
-      setErr("Form edit: nama_bahan/satuan wajib, harga angka ≥ 0.");
+      const m = "Form edit: nama_bahan/satuan wajib, harga angka ≥ 0.";
+      setErr(m);
+      toast.error(m);
       return;
     }
 
@@ -114,28 +135,39 @@ export default function SetupBahanPage() {
       })
       .eq("id", editing.id);
 
-    if (error) setErr(error.message);
-    else {
+    if (error) {
+      setErr(error.message);
+      toast.error(error.message);
+    } else {
       setMsg("Berhasil update.");
+      toast.success("Perubahan disimpan");
       setEditing(null);
       load();
     }
   };
 
-  // ===== Delete =====
+  /* =========================
+     DELETE
+     ========================= */
   const del = async (id: string) => {
     setErr(null);
     setMsg(null);
     if (!confirm("Yakin hapus bahan ini?")) return;
 
     const { error } = await supabase.from("bahan").delete().eq("id", id);
-    if (error) setErr(error.message);
-    else {
+    if (error) {
+      setErr(error.message);
+      toast.error(error.message);
+    } else {
       setMsg("Berhasil hapus.");
+      toast.success("Bahan dihapus");
       load();
     }
   };
 
+  /* =========================
+     UI
+     ========================= */
   return (
     <div className="p-6 max-w-3xl">
       <h1 className="text-2xl font-bold mb-4">Setup Bahan</h1>
@@ -229,6 +261,12 @@ export default function SetupBahanPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <Link
+                    href={`/setup/bahan/${b.id}/logs`}
+                    className="border px-3 py-1 rounded text-sm"
+                  >
+                    Logs
+                  </Link>
                   <button
                     className="border px-3 py-1 rounded text-sm"
                     onClick={() => {
