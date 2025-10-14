@@ -14,28 +14,28 @@ export default function LoginPage() {
 
   useEffect(() => {
     const run = async () => {
-      // allow visiting /login?stay=1 without auto-redirect
-      const stay =
-        typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("stay") === "1";
+    const stay =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("stay") === "1";
 
+    const { data } = await supabase.auth.getSession();
+    setSessionJson(JSON.stringify(data.session, null, 2));const stay =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("stay") === "1";
+
+    const { data } = await supabase.auth.getSession();
+    setSessionJson(JSON.stringify(data.session, null, 2));
       const { data } = await supabase.auth.getSession();
       setSessionJson(JSON.stringify(data.session, null, 2));
-      if (data.session && !stay) router.replace("/dashboard");
+      if (data.session) router.replace("/dashboard");
     };
     run();
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (e, s) => {
       setSessionJson(JSON.stringify(s, null, 2));
-
-      const stay =
-        typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("stay") === "1";
-
-      if (e === "SIGNED_IN" && !stay) router.replace("/dashboard");
-      if (e === "SIGNED_OUT" && !stay) router.replace("/login");
+      if (e === "SIGNED_IN") router.replace("/dashboard");
+      if (e === "SIGNED_OUT") router.replace("/login");
     });
-
     return () => sub.subscription.unsubscribe();
   }, [router]);
 
