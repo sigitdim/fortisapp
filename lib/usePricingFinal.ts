@@ -30,7 +30,7 @@ export function usePricingFinal(produkId?: string, ownerId?: string | null) {
       .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setErr(String(e)))
       .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = True; };
+    return () => { cancelled = true; };
   }, [produkId, ownerId]);
 
   return { data, loading, err };
