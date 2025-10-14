@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const API = process.env.NEXT_PUBLIC_API_URL!; // ex: https://api.fortislab.id
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
+  const { id } = ctx.params;
+  const api = process.env.NEXT_PUBLIC_API_URL ?? "https://api.fortislab.id"!;
+  const body = await req.text();
 
 export async function GET(_req: NextRequest, { params }: { params: { parts: string[] } }) {
   const [id, tail] = params.parts;

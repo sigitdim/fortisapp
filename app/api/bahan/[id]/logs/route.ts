@@ -1,7 +1,7 @@
 // app/api/bahan/[...parts]/route.ts
 import { NextRequest } from "next/server";
 
-const API = process.env.NEXT_PUBLIC_API_URL; // e.g. https://api.fortislab.id or http://localhost:4000
+const API = process.env.NEXT_PUBLIC_API_URL ?? "https://api.fortislab.id"; // e.g. https://api.fortislab.id or http://localhost:4000
 
 function notReady(msg: string, status = 500) {
   return new Response(JSON.stringify({ ok: false, error: msg }), {
