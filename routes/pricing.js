@@ -1,101 +1,195 @@
 // routes/pricing.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require("@supabase/supabase-js");
 
 // 🔑 ENV Supabase
-const SUPABASE_URL =
-  process.env.SUPABASE_URL;
+const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY =
-  process.env.SUPABASE_KEY || process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_KEY ||
+  process.env.SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// 💾 Supabase client (global)
+// 💾 Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// 🤖 OpenAI: lazy init (biar app gak crash saat start)
+// 🤖 OpenAI lazy init
 let _openai = null;
 function getOpenAI() {
   if (!_openai) {
-    const OpenAI = require('openai');
+    const OpenAI = require("openai");
     _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return _openai;
 }
 
-// (opsional) stub lama
-router.get('/final', async (req, res) => {
+// =====================
+// ✅  AI SUGGEST (refactor baru)
+// =====================
+router.post("/suggest", async (req, res) => {
   try {
-    const ownerId = req.header('x-owner-id');
-    const produkId = req.query.produk_id;
-    if (!ownerId || !produkId) {
-      return res.status(400).json({ error: 'owner_id & produk_id wajib' });
+    const owner_id = req.headers["x-owner-id"];
+    const { produk_id, target_margin_pct = 0.35 } = req.body || {};
+
+    if (!owner_id || !produk_id)
+      return res
+        .status(400)
+        .json({ ok: false, error: "produk_id atau owner_id kosong" });
+
+    // ambil nama produk + HPP
+    const { data: produk } = await supabase
+      .from("produk")
+      .select("nama_produk")
+      .eq("id", produk_id)
+      .maybeSingle();
+
+    const { data: hpp } = await supabase
+      .from("v_hpp_final_new")
+      .select("total_hpp")
+      .eq("produk_id", produk_id)
+      .maybeSingle();
+
+    const namaProduk = produk?.nama_produk || "Produk Tanpa Nama";
+    const hppValue = hpp?.total_hpp || 0;
+    if (!hppValue)
+      return res
+        .status(400)
+        .json({ ok: false, error: "HPP belum tersedia untuk produk ini" });
+
+    const openai = getOpenAI();
+
+    // Prompt general lintas industri
+    const prompt = `
+Kamu adalah asisten bisnis profesional yang ahli dalam analisis harga lintas industri (F&B, fashion, kerajinan, kosmetik, manufaktur ringan, dll).
+
+Analisis data berikut:
+- Nama produk: ${namaProduk}
+- HPP: Rp${hppValue}
+- Target margin: ${(target_margin_pct * 100).toFixed(0)}%
+
+Tugas:
+1. Identifikasi kategori bisnis otomatis dari nama produk.
+2. Beri 3 rekomendasi harga jual (Kompetitif, Standar, Premium).
+3. Untuk tiap harga, sertakan: harga_jual, margin_pct, strategi, alasan.
+4. Tambahkan analisa_umum (insight pasar).
+
+Kembalikan **JSON valid saja**:
+{
+  "produk":"${namaProduk}",
+  "kategori":"string",
+  "hpp":${hppValue},
+  "rekomendasi":[
+    {"tipe":"Kompetitif","harga_jual":angka,"margin_pct":angka,"strategi":"...","alasan":"..."},
+    {"tipe":"Standar","harga_jual":angka,"margin_pct":angka,"strategi":"...","alasan":"..."},
+    {"tipe":"Premium","harga_jual":angka,"margin_pct":angka,"strategi":"...","alasan":"..."}
+  ],
+  "analisa_umum":"..."
+}
+`;
+
+    const ai = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+    });
+
+    const raw = ai?.choices?.[0]?.message?.content?.trim() || "";
+
+    // parsing aman
+    let parsed;
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    } catch (e) {
+      parsed = null;
     }
-    return res.json({ ok: true, owner_id: ownerId, produk_id: produkId, result: 'pricing stub' });
-  } catch {
-    return res.status(500).json({ error: 'SERVER_ERROR' });
+
+    // fallback simple
+    if (!parsed) {
+      const rec = Math.round(hppValue * (1 + target_margin_pct));
+      parsed = {
+        produk: namaProduk,
+        kategori: "Umum",
+        hpp: hppValue,
+        rekomendasi: [
+          {
+            tipe: "Standar",
+            harga_jual: rec,
+            margin_pct: target_margin_pct,
+            strategi: "Gunakan strategi harga sederhana",
+            alasan: "Fallback perhitungan otomatis",
+          },
+        ],
+        analisa_umum:
+          "AI gagal parsing, gunakan hasil fallback (rumus margin sederhana).",
+      };
+    }
+
+    // simpan log
+    await supabase.from("pricing_logs").insert({
+      owner_id,
+      produk_id,
+      harga_lama: null,
+      harga_baru: parsed.rekomendasi?.[1]?.harga_jual || null,
+      source: "ai_suggest",
+      inputs_hash: `auto-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    });
+
+    return res.json({ ok: true, data: parsed });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// ✅ AI Suggestion
-router.post('/suggest', async (req, res) => {
+// =====================
+// ✅  APPLY hasil AI → simpan ke DB
+// =====================
+router.post("/apply", async (req, res) => {
   try {
-    const { produk_id } = req.body || {};
-    if (!produk_id) return res.status(400).json({ ok: false, error: 'produk_id wajib ada' });
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      return res.status(500).json({ ok:false, error:'supabaseKey/url missing' });
-    }
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ ok:false, error:'OPENAI_API_KEY missing' });
-    }
+    const owner_id = req.headers["x-owner-id"];
+    const { produk_id, recommended_price, inputs_hash } = req.body || {};
 
-    // 1) Ambil HPP dari view final
-    const { data: hppRow, error: hppErr } = await supabase
-      .from('v_hpp_final_new')
-      .select('produk_id,total_hpp')
-      .eq('produk_id', produk_id)
+    if (!owner_id || !produk_id || !recommended_price)
+      return res
+        .status(400)
+        .json({ ok: false, error: "data kurang lengkap (produk_id / harga)" });
+
+    // ambil harga lama
+    const { data: old } = await supabase
+      .from("produk")
+      .select("harga_jual")
+      .eq("id", produk_id)
       .maybeSingle();
-    if (hppErr) return res.status(500).json({ ok:false, error:'ERR_HIT_V_HPP', detail:hppErr.message });
-    if (!hppRow) return res.status(404).json({ ok:false, error:'Produk tidak ditemukan di v_hpp_final_new' });
 
-    // 2) Ambil nama produk dari tabel produk
-    const { data: prodRow, error: prodErr } = await supabase
-      .from('produk')
-      .select('id,nama_produk')
-      .eq('id', produk_id)
-      .maybeSingle();
-    if (prodErr) return res.status(500).json({ ok:false, error:'ERR_HIT_PRODUK', detail:prodErr.message });
-    if (!prodRow) return res.status(404).json({ ok:false, error:'Produk tidak ada di tabel produk' });
+    const old_price = old?.harga_jual || null;
 
-    const nama = prodRow.nama_produk || 'Tanpa Nama';
-    const hpp  = Number(hppRow.total_hpp) || 0;
+    // update harga baru
+    await supabase
+      .from("produk")
+      .update({ harga_jual: recommended_price })
+      .eq("id", produk_id);
 
-    // 3) Minta rekomendasi ke OpenAI
-    const openai = getOpenAI();
-    const prompt = `Produk: ${nama}
-HPP: ${hpp}
-
-Beri rekomendasi harga jual wajar untuk UMKM Indonesia.
-Balas hanya angka bulat (tanpa simbol, tanpa teks).`;
-
-    const ai = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }]
+    // log perubahan
+    await supabase.from("pricing_logs").insert({
+      owner_id,
+      produk_id,
+      harga_lama: old_price,
+      harga_baru: recommended_price,
+      source: "ai_apply",
+      inputs_hash: inputs_hash || null,
+      created_at: new Date().toISOString(),
     });
 
-    const raw = (ai?.choices?.[0]?.message?.content || '').trim();
-    const hargaRekomendasi = parseInt(raw.replace(/[^\d]/g, ''), 10);
-    if (Number.isNaN(hargaRekomendasi)) {
-      return res.status(500).json({ ok:false, error:'AI_BAD_RESPONSE', raw });
-    }
-
-    // 4) Balikkan ke FE
     return res.json({
       ok: true,
-      data: { produk_id, nama_produk: nama, hpp, harga_rekomendasi: hargaRekomendasi }
+      message: "Harga berhasil diterapkan",
+      data: { produk_id, old_price, new_price: recommended_price },
     });
   } catch (err) {
-    return res.status(500).json({ ok:false, error: err.message });
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
