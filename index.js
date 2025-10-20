@@ -499,35 +499,22 @@ app.get('/hpp', async (req, res) => {
   }
 });
 
-app.get('/promo', async (req, res) => {
+// === GET /promo ===
+// ambil daftar promo dari tabel public.promo (sesuai kontrak FE)
+app.get('/promo', async (_req, res) => {
   try {
-    // ambil semua produk dengan HPP & harga jual user
     const { data, error } = await supabase
-      .from('v_pricing_final')
-      .select('produk_id, nama_produk, total_hpp, harga_rek_standar, harga_jual_user');
-
+      .from('promo')
+      .select('id, nama, tipe, nilai, produk_ids, aktif')
+      .order('created_at', { ascending: false });
     if (error) throw error;
-
-    // hitung margin
-    const result = data.map(p => ({
-      produk_id: p.produk_id,
-      nama_produk: p.nama_produk,
-      total_hpp: p.total_hpp,
-      harga_jual_user: p.harga_jual_user,
-      margin_persen: p.harga_rek_standar && p.hpp_total_per_porsi
-  ? ((p.harga_rek_standar - p.hpp_total_per_porsi) / p.harga_rek_standar * 100).toFixed(1)
-  : 0
-
-    }));
-
-    // urutkan dari margin tertinggi
-    result.sort((a, b) => b.margin_persen - a.margin_persen);
-
-    res.json({ ok: true, data: result });
+    res.json({ ok: true, data });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    console.error('GET /promo error:', e);
+    res.status(500).json({ ok: false, message: e.message });
   }
 });
+
 
 // === GET /setup/get ===
 // Ambil ulang data setup user (bahan, overhead, tenaga kerja)
@@ -886,6 +873,14 @@ app.use("/webhook", webhookRouter);
 const aiRouter = require('./routes/ai');
 app.use('/ai', aiRouter);
 
+// === INVENTORY ===
+const inventoryRouter = require("./routes/inventory");
+app.use("/inventory", inventoryRouter);
+
+// === DASHBOARD ===
+const dashboardRouter = require("./routes/dashboard");
+app.use("/dashboard", dashboardRouter);
+
 // --- PORT & GLOBAL ERROR HANDLER ---
 const PORT = process.env.PORT || 4000;
 
@@ -906,4 +901,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
+
 
