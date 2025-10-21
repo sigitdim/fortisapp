@@ -1,38 +1,34 @@
-// app/api/bahan/[...parts]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-export async function GET(_req: NextRequest, { params }: { params: { parts: string[] } }) {
-  const api = process.env.NEXT_PUBLIC_API_URL ?? "https://api.fortislab.id";
-  const [id, tail] = params.parts ?? [];
+const API = process.env.NEXT_PUBLIC_API_URL!;
+const ownerId = () =>
+  process.env.NEXT_PUBLIC_OWNER_ID || "00000000-0000-0000-0000-000000000000";
 
-  if (!id) {
-    return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
-  }
+async function forward(req: NextRequest, path: string) {
+  // penting: prefix /bahan supaya cocok dengan route BE
+  const url = `${API}/bahan${path}`;
+  const method = req.method;
+  const headers: HeadersInit = {
+    "content-type": "application/json",
+    "x-owner-id": ownerId(),
+  };
+  const body =
+    ["POST", "PUT", "PATCH"].includes(method) ? await req.text() : undefined;
 
-  // /api/bahan/:id/logs  -> proxy ke BE
-  if (tail === "logs") {
-    const r = await fetch(`${api}/bahan/logs/${id}`, { cache: "no-store" });
-    const data = await r.json().catch(() => ({}));
-    return NextResponse.json(data, { status: r.status });
-  }
-
-  return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-}
-
-export async function PATCH(req: NextRequest, { params }: { params: { parts: string[] } }) {
-  const api = process.env.NEXT_PUBLIC_API_URL ?? "https://api.fortislab.id";
-  const [id] = params.parts ?? [];
-  if (!id) {
-    return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
-  }
-
-  const bodyText = await req.text();
-  const r = await fetch(`${api}/bahan/${id}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: bodyText,
-    cache: "no-store",
+  const res = await fetch(url, { method, headers, body, cache: "no-store" });
+  const text = await res.text();
+  return new NextResponse(text, {
+    status: res.status,
+    headers: { "content-type": res.headers.get("content-type") || "application/json" },
   });
-  const data = await r.json().catch(() => ({}));
-  return NextResponse.json(data, { status: r.status });
 }
+
+export async function GET(req: NextRequest, { params }: { params: { parts: string[] } }) {
+  const path = "/" + params.parts.join("/");
+  return forward(req, path);
+}
+export async function PATCH(req: NextRequest, { params }: { params: { parts: string[] } }) {
+  const path = "/" + params.parts.join("/");
+  return forward(req, path);
+}
+export const dynamic = "force-dynamic";

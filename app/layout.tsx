@@ -1,6 +1,21 @@
-import "./globals.css"; // atau "src/app/globals.css" sesuai lokasi file kamu
+// app/layout.tsx
 import type { Metadata } from "next";
-export const metadata: Metadata = { title: "FortisApp", description: "FortisApp Frontend" };
+import "./globals.css";
+import AiAssistant from "@/components/AiAssistant"; // <-- tampil di semua halaman
+
+export const metadata: Metadata = {
+  title: "FortisApp",
+  description: "Manajemen HPP, Pricing, Promo — Fortuna Cafe",
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (<html lang="id"><body>{children}</body></html>);
+  return (
+    <html lang="id">
+      <body className="min-h-dvh bg-white text-black">
+        {children}
+        {/* Floating AI di kanan bawah */}
+        <AiAssistant />
+      </body>
+    </html>
+  );
 }
