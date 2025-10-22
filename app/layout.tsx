@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   description: "Manajemen HPP, Pricing, Promo — Fortuna Cafe",
 };
 
+import AIAssistant from '@/app/components/AIAssistant';
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="id">
@@ -15,7 +17,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         {/* Floating AI di kanan bawah */}
         <AiAssistant />
-      </body>
+        <AIAssistant />
+    </body>
     </html>
   );
 }

@@ -1,12 +1,4 @@
-export function exportToCsv<T extends Record<string, any>>(rows: T[], filename = "pricing.csv") {
-  if (!rows || rows.length === 0) return;
-  const headers = Object.keys(rows[0]);
-  const esc = (v:any) => v==null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : String(v);
-  const csv = "\ufeff" + [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url;
-  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-  a.download = filename.replace(/\.csv$/i, `-${ts}.csv`);
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-}
+export function toCSV<T extends Record<string,any>>(rows:T[], headers?:string[]){ if(!rows?.length) return ""; const cols=headers?.length?headers:Array.from(rows.reduce((s,r)=>{Object.keys(r).forEach(k=>s.add(k));return s;},new Set<string>())); const esc=(v:any)=>{if(v===null||v===undefined)return""; const s=String(v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s}; return [cols.join(","),...rows.map(r=>cols.map(c=>esc(r[c])).join(","))].join("\n");}
+export function downloadCSV(filename:string,csv:string){const b=new Blob([csv],{type:"text/csv;charset=utf-8;"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=filename;a.click();URL.revokeObjectURL(u);}
+export function exportToCsv<T extends Record<string,any>>(rows:T[],filename:string,headers?:string[]){downloadCSV(filename,toCSV(rows,headers))}
+export default {toCSV,downloadCSV,exportToCsv};

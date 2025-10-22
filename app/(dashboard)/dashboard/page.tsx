@@ -1,315 +1,233 @@
-// app/dashboard/page.tsx
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '@/app/lib/api';
+import ExportCsvButton from '@/app/components/ExportCsvButton';
+// Chart siap pakai jika mau dihidupkan:
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 
-/* ========= ENV ========= */
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = "f6269e9a-bc6d-4f8b-aa45-08affc769e5a";
-
-/* ========= Types ========= */
-type Produk = { id: string; nama: string; harga_jual_user?: number | null };
-type HppResp = {
-  ok: boolean;
-  owner_id: string;
-  produk_id: string;
-  hpp: {
-    bahan_per_porsi: number;
-    overhead_per_porsi: number;
-    tenaga_kerja_per_porsi: number;
-  };
-  note?: string;
-  total_hpp?: number;
-};
-type Promo = {
-  id: string;
-  nama: string;
-  aktif: boolean;
-  start_date: string;
-  end_date: string;
-  type: string;
-};
-
-type Row = {
-  produk_id: string;
-  nama: string;
+type MarginRow = {
+  nama_produk: string;
   hpp: number;
-  harga: number;
-  profit: number;
-  margin: number; // 0..1
+  harga_jual: number;
+  margin_pct: number;
 };
 
-/* ========= Helpers ========= */
-const h = {
-  headers() {
-    return {
-      "Content-Type": "application/json",
-      "x-owner-id": OWNER_ID,
-    };
-  },
-  async get<T>(path: string): Promise<T> {
-    const r = await fetch(`${API_URL}${path}`, { headers: h.headers(), cache: "no-store" });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    return r.json();
-  },
+type LowStockRow = {
+  bahan_nama: string;
+  saldo_stok: number;
+  satuan_dasar: string;
 };
 
-const fmtRp = (n: number) =>
-  n.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+type StockLog = {
+  bahan_nama: string;
+  qty: number;
+  type: 'in'|'out';
+  catatan?: string;
+};
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const inRange = (d: string, start: string, end: string) => d >= start && d <= end;
+type PromoRec = {
+  nama_produk: string;
+  rekomendasi: string;
+  alasan?: string;
+};
 
-/* ========= Smart fetchers ========= */
-async function fetchProduk(): Promise<Produk[]> {
-  try {
-    const j1 = await h.get<{ ok: boolean; data: Produk[] }>("/setup/produk");
-    if (j1?.data) return j1.data;
-    return [];
-  } catch {
-    try {
-      const j2 = await h.get<{ ok: boolean; data: Produk[] }>("/produk");
-      if (j2?.data) return j2.data;
-    } catch {}
-    return [];
+type Overview = {
+  margin_top: MarginRow[];
+  margin_bottom: MarginRow[];
+  low_stock: LowStockRow[];
+  recent_stock_in: StockLog[];
+  recent_stock_out: StockLog[];
+  promo_recommendations: PromoRec[];
+  meta?: { low_stock_threshold?: number; recent_days?: number; generated_at?: string };
+};
+
+export default function DashboardPage(){
+  const [ov, setOv] = useState<Overview|null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string|null>(null);
+  const [ownerId, setOwnerId] = useState<string|undefined>(undefined);
+  const lowStockParam = 20; // ganti bila perlu
+
+  useEffect(()=>{
+    try{
+      const ls = typeof window !== 'undefined' ? window.localStorage.getItem('owner_id') : null;
+      if (ls) setOwnerId(ls);
+    }catch{}
+  },[]);
+
+  async function load(){
+    try{
+      setLoading(true); setErr(null);
+      const headers:any = {};
+      if (ownerId) headers['x-owner-id'] = ownerId;
+
+      const r:any = await api(`/dashboard/overview?low_stock=${lowStockParam}`, { headers });
+      const data:Overview = r?.data ?? r;
+      const norm = {
+        margin_top: Array.isArray((data as any)?.margin_top) ? data.margin_top : [],
+        margin_bottom: Array.isArray((data as any)?.margin_bottom) ? data.margin_bottom : [],
+        low_stock: Array.isArray((data as any)?.low_stock) ? data.low_stock : [],
+        recent_stock_in: Array.isArray((data as any)?.recent_stock_in) ? data.recent_stock_in : [],
+        recent_stock_out: Array.isArray((data as any)?.recent_stock_out) ? data.recent_stock_out : [],
+        promo_recommendations: Array.isArray((data as any)?.promo_recommendations) ? data.promo_recommendations : [],
+        meta: (data as any)?.meta ?? {}
+      } as Overview;
+      setOv(norm);
+    }catch(e:any){
+      setErr(e?.message || 'Gagal memuat dashboard');
+      setOv(null);
+    }finally{
+      setLoading(false);
+    }
   }
-}
 
-async function fetchPromos(): Promise<Promo[]> {
-  try {
-    const j = await h.get<{ ok: boolean; data: Promo[] }>("/promo");
-    return j?.data || [];
-  } catch {
-    return [];
-  }
-}
+  useEffect(()=>{ if(ownerId!==undefined) load(); }, [ownerId]);
 
-async function fetchHpp(produk_id: string): Promise<number> {
-  const j = await h.get<HppResp>(`/pricing/final?produk_id=${encodeURIComponent(produk_id)}`);
-  // prefer total_hpp jika tersedia, fallback jumlah field
-  const t =
-    typeof j.total_hpp === "number"
-      ? j.total_hpp
-      : (j.hpp?.bahan_per_porsi || 0) + (j.hpp?.overhead_per_porsi || 0) + (j.hpp?.tenaga_kerja_per_porsi || 0);
-  return t || 0;
-}
+  const marginAll: MarginRow[] = useMemo(()=> (ov?.margin_top||[]).concat(ov?.margin_bottom||[]), [ov]);
+  const totalProduk = marginAll.length;
+  const avgMarginPct = useMemo(()=> marginAll.length ? Math.round( (marginAll.reduce((s,r)=>s+(+r.margin_pct||0),0)/marginAll.length) * 10)/10 : 0, [marginAll]);
 
-/* ========= Component ========= */
-export default function DashboardPage() {
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  const [produk, setProduk] = useState<Produk[]>([]);
-  const [promos, setPromos] = useState<Promo[]>([]);
-  const [rows, setRows] = useState<Row[]>([]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setErr(null);
-
-        const [pList, promoList] = await Promise.all([fetchProduk(), fetchPromos()]);
-
-        // Ambil HPP setiap produk paralel
-        const hpps = await Promise.all(
-          pList.map(async (p) => {
-            try {
-              const hpp = await fetchHpp(p.id);
-              return [p.id, hpp] as const;
-            } catch {
-              return [p.id, 0] as const;
-            }
-          })
-        );
-        const hppMap = new Map(hpps);
-
-        // Build rows: harga_jual_user mungkin null -> 0 (biar kelihatan kritis)
-        const rowsBuilt: Row[] = pList.map((p) => {
-          const hpp = Number(hppMap.get(p.id) || 0);
-          const harga = Number(p.harga_jual_user || 0);
-          const profit = Math.max(0, harga - hpp);
-          const margin = harga > 0 ? profit / harga : 0;
-          return { produk_id: p.id, nama: p.nama, hpp, harga, profit, margin };
-        });
-
-        setProduk(pList);
-        setPromos(promoList);
-        setRows(rowsBuilt);
-      } catch (e: any) {
-        setErr(e?.message ?? "Gagal memuat dashboard");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const kpi = useMemo(() => {
-    const countProduk = rows.length;
-    const avgMargin = rows.length
-      ? rows.reduce((a, b) => a + b.margin, 0) / rows.length
-      : 0;
-    const kritis = rows.filter((r) => r.margin < 0.2).length;
-
-    const today = todayISO();
-    const promoAktif = promos.filter(
-      (p) => p.aktif && inRange(today, (p.start_date || "").slice(0, 10), (p.end_date || "").slice(0, 10))
-    ).length;
-
-    const totalProfit = rows.reduce((a, b) => a + b.profit, 0);
-
-    return { countProduk, avgMargin, promoAktif, kritis, totalProfit };
-  }, [rows, promos]);
-
-  const topProduk = useMemo(
-    () => [...rows].sort((a, b) => b.margin - a.margin).slice(0, 5),
-    [rows]
-  );
-  const lowProduk = useMemo(
-    () => rows.filter((r) => r.margin < 0.2).sort((a, b) => a.margin - b.margin).slice(0, 10),
-    [rows]
-  );
-
-  if (loading) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-        <p className="mt-2 text-sm text-gray-500">Memuat ringkasan…</p>
-      </div>
-    );
-  }
+  const exportRows = useMemo(()=>{
+    return [
+      ... (ov?.margin_top||[]).map(x=>({ section:'margin_top', ...x })),
+      ... (ov?.margin_bottom||[]).map(x=>({ section:'margin_bottom', ...x })),
+      ... (ov?.low_stock||[]).map(x=>({ section:'low_stock', ...x })),
+      ... (ov?.recent_stock_in||[]).map(x=>({ section:'recent_stock_in', ...x })),
+      ... (ov?.recent_stock_out||[]).map(x=>({ section:'recent_stock_out', ...x })),
+      ... (ov?.promo_recommendations||[]).map(x=>({ section:'promo_recommendations', ...x })),
+    ];
+  }, [ov]);
 
   return (
-    <div className="p-6 space-y-8">
-      <header className="flex items-center justify-between">
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <span className="text-sm text-gray-500">
-          {new Date().toLocaleString("id-ID")}
-        </span>
-      </header>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="px-3 py-2 rounded border hover:bg-gray-50 text-sm">
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+          <ExportCsvButton filename="dashboard_overview.csv" rows={exportRows}/>
+        </div>
+      </div>
 
-      {err && (
-        <div className="rounded-lg border border-red-300 bg-red-50 text-red-800 px-4 py-3 text-sm">
-          {String(err)}
+      {err && <div className="text-red-600 text-sm">{err}</div>}
+      {ov?.meta && (
+        <div className="text-xs text-gray-500">
+          low_stock threshold: {ov.meta.low_stock_threshold ?? 10} · recent_days: {ov.meta.recent_days ?? 7}
+          {ov.meta.generated_at ? <> · generated: {new Date(ov.meta.generated_at).toLocaleString()}</> : null}
         </div>
       )}
 
-      {/* KPI Cards */}
-      <section className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard title="Produk Aktif" value={kpi.countProduk.toString()} />
-        <KpiCard title="Rata-rata Margin" value={(kpi.avgMargin * 100).toFixed(1) + "%"} />
-        <KpiCard title="Promo Aktif" value={kpi.promoAktif.toString()} />
-        <KpiCard title="Produk Kritis (<20%)" value={kpi.kritis.toString()} />
-        <KpiCard title="Total Profit (display)" value={fmtRp(kpi.totalProfit)} />
-      </section>
+      <div className="grid md:grid-cols-4 gap-4">
+        <Card title="Total Produk (punya margin)" value={totalProduk.toLocaleString()} />
+        <Card title="Rata-rata Margin (%)" value={`${avgMarginPct}%`} />
+        <Card title="Low Stock" value={(ov?.low_stock?.length||0).toLocaleString()} />
+        <Card title="Promo Rekomendasi" value={(ov?.promo_recommendations?.length||0).toLocaleString()} />
+      </div>
 
-      {/* Grafik Margin per Produk */}
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-lg font-semibold mb-3">Margin per Produk</h2>
-        {rows.length === 0 ? (
-          <p className="text-sm text-gray-500">Belum ada data produk.</p>
-        ) : (
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={rows.map((r) => ({ name: r.nama, marginPct: Number((r.margin * 100).toFixed(1)) }))}
-                margin={{ top: 10, right: 20, bottom: 30, left: 10 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" angle={-20} textAnchor="end" interval={0} height={60} />
-                <YAxis unit="%" />
-                <Tooltip formatter={(v: any) => `${v}%`} />
-                <Bar dataKey="marginPct" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </section>
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Section title="Produk Margin Tertinggi">
+          <MiniTable cols={['Produk','Harga Jual','Margin %']} rows={(ov?.margin_top||[]).map(m=>[
+            m.nama_produk,
+            (m.harga_jual||0).toLocaleString(),
+            (Math.round((m.margin_pct||0)*10)/10)+'%'
+          ])}/>
+        </Section>
 
-      {/* Top Produk */}
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-lg font-semibold mb-3">Top Produk (by Margin)</h2>
-        {topProduk.length === 0 ? (
-          <p className="text-sm text-gray-500">Tidak ada data.</p>
-        ) : (
-          <div className="overflow-auto">
-            <table className="min-w-[680px] w-full text-sm">
-              <thead>
-                <tr className="text-left border-b">
-                  <th className="py-2 pr-3">Produk</th>
-                  <th className="py-2 pr-3">HPP</th>
-                  <th className="py-2 pr-3">Harga</th>
-                  <th className="py-2 pr-3">Profit</th>
-                  <th className="py-2 pr-3">Margin</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topProduk.map((r) => (
-                  <tr key={r.produk_id} className="border-b">
-                    <td className="py-2 pr-3 font-medium">{r.nama}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.hpp)}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.harga)}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.profit)}</td>
-                    <td className="py-2 pr-3">{(r.margin * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        <Section title="Produk Margin Terendah">
+          <MiniTable cols={['Produk','Harga Jual','Margin %']} rows={(ov?.margin_bottom||[]).map(m=>[
+            m.nama_produk,
+            (m.harga_jual||0).toLocaleString(),
+            (Math.round((m.margin_pct||0)*10)/10)+'%'
+          ])}/>
+        </Section>
 
-      {/* Produk Kritis */}
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-lg font-semibold mb-3">Produk Kritis (Margin &lt; 20%)</h2>
-        {lowProduk.length === 0 ? (
-          <p className="text-sm text-gray-500">Tidak ada yang kritis 🎉</p>
-        ) : (
-          <div className="overflow-auto">
-            <table className="min-w-[680px] w-full text-sm">
-              <thead>
-                <tr className="text-left border-b">
-                  <th className="py-2 pr-3">Produk</th>
-                  <th className="py-2 pr-3">HPP</th>
-                  <th className="py-2 pr-3">Harga</th>
-                  <th className="py-2 pr-3">Profit</th>
-                  <th className="py-2 pr-3">Margin</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lowProduk.map((r) => (
-                  <tr key={r.produk_id} className="border-b">
-                    <td className="py-2 pr-3 font-medium">{r.nama}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.hpp)}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.harga)}</td>
-                    <td className="py-2 pr-3">{fmtRp(r.profit)}</td>
-                    <td className="py-2 pr-3">{(r.margin * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        <Section title="Stok Rendah">
+          { (ov?.low_stock?.length||0) ? (
+            <MiniTable cols={['Bahan','Saldo','Satuan']} rows={(ov?.low_stock||[]).map(s=>[
+              s.bahan_nama, (s.saldo_stok||0).toLocaleString(), s.satuan_dasar
+            ])}/>
+          ) : <Empty text="Tidak ada bahan di bawah ambang batas."/>}
+        </Section>
+
+        <Section title="Mutasi Stok Terbaru">
+          { ((ov?.recent_stock_in?.length||0) + (ov?.recent_stock_out?.length||0)) ? (
+            <MiniTable cols={['Bahan','Qty','Tipe','Catatan']} rows={
+              [
+                ...(ov?.recent_stock_in||[]).map(l=>[l.bahan_nama, (l.qty||0).toLocaleString(), 'IN', l.catatan||'-']),
+                ...(ov?.recent_stock_out||[]).map(l=>[l.bahan_nama, (l.qty||0).toLocaleString(), 'OUT', l.catatan||'-']),
+              ]
+            }/>
+          ) : <Empty text="Belum ada mutasi 7 hari terakhir."/>}
+        </Section>
+
+        <Section title="Rekomendasi Promo" className="lg:col-span-2">
+          { (ov?.promo_recommendations?.length||0) ? (
+            <MiniTable cols={['Produk','Rekomendasi','Alasan']} rows={(ov?.promo_recommendations||[]).map(p=>[
+              p.nama_produk, p.rekomendasi, p.alasan || '-'
+            ])}/>
+          ) : <Empty text="Belum ada rekomendasi promo."/>}
+        </Section>
+      </div>
+
+      {/* Slot chart jika dibutuhkan ke depan */}
+      {/* 
+      <div className="rounded-2xl border p-4">
+        <div className="mb-2 font-semibold">Margin per Produk</div>
+        <div className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={marginAll.slice(0,30)}>
+              <XAxis dataKey="nama_produk" tick={{fontSize:12}} interval={0} angle={-20} height={70}/>
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="margin_pct" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      */}
     </div>
   );
 }
 
-/* ========= UI bits ========= */
-function KpiCard({ title, value }: { title: string; value: string }) {
+function Card({title,value}:{title:string; value:string}){
   return (
-    <div className="rounded-2xl border p-4">
-      <div className="text-sm text-gray-500">{title}</div>
-      <div className="text-2xl font-bold mt-1">{value}</div>
+    <div className="rounded-2xl border p-4 bg-white">
+      <div className="text-gray-500 text-sm">{title}</div>
+      <div className="text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function Section({title, children, className}:{title:string; children:any; className?:string}){
+  return (
+    <div className={`rounded-2xl border p-4 bg-white ${className||''}`}>
+      <div className="mb-2 font-semibold">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Empty({text}:{text:string}){ return <div className="text-sm text-gray-500">{text}</div>; }
+
+function MiniTable({cols, rows}:{cols:string[]; rows:(string|number)[][]}){
+  return (
+    <div className="overflow-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-gray-500">
+            {cols.map((c,i)=><th key={i} className="py-2 pr-4">{c}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r,i)=>(
+            <tr key={i} className="border-t">
+              {r.map((c,j)=><td key={j} className="py-2 pr-4">{c as any}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
