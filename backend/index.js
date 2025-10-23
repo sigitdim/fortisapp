@@ -6,12 +6,21 @@ const { z } = require('zod');
 
 const app = express();
 
-// Supabase client
+// Supabase client (prioritaskan SERVICE ROLE)
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  process.env.SUPABASE_SERVICE_ROLE_KEY    // ✅ pakai service_role duluan
+  || process.env.SERVICE_ROLE_KEY          // (alias cadangan kalau namanya beda)
+  || process.env.SUPABASE_KEY,             // terakhir baru anon (kalau 2 di atas kosong)
   { auth: { persistSession: false } }
 );
+
+// (opsional) cek tipe key yang kepakai tanpa nge-print isi key
+const keyUsed =
+  (process.env.SUPABASE_SERVICE_ROLE_KEY && 'service_role') ||
+  (process.env.SERVICE_ROLE_KEY && 'service_role') ||
+  (process.env.SUPABASE_KEY && 'anon') || 'unknown';
+console.log(`[supabase] using ${keyUsed} key`);
 
 // Middleware cek admin API key
 function checkAdminKey(req, res, next) {
@@ -230,6 +239,7 @@ app.patch("/pricing/:id", async (req, res) => {
 
 // PATCH /bahan/:id  → update harga bahan + simpan log + auto recalculation HPP
 app.patch("/bahan/:id", async (req, res) => {
+  const isUUID = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s || '');
   const { id } = req.params;
   const { harga_baru, changed_by } = req.body; // contoh: { "harga_baru": 32500, "changed_by": "uuid-user" }
 
@@ -275,15 +285,22 @@ app.patch("/bahan/:id", async (req, res) => {
       .eq("id", id)
       .select();
     if (ue) return res.status(400).json({ error: ue.message });
-
+    
     // 5. Simpan log bahan
-    await supabase.from("bahan_logs").insert([{
-      bahan_id: id,
-      owner_id: oldData.owner_id,
-      harga_lama,
-      harga_baru,
-      changed_by: changed_by || null
-    }]);
+const { error: logErr } = await supabase.from("bahan_logs").insert([{
+  bahan_id: id ? String(id) : null,                // pastiin format string UUID
+  owner_id: oldData.owner_id ? String(oldData.owner_id) : null,
+  harga_lama,
+  harga_baru,
+  changed_by: changed_by ? String(changed_by) : null // biar gak ke-cast uuid
+}]);
+
+if (logErr) {
+  console.error("❌ bahan_logs insert error:", logErr);
+} else {
+  console.log(`✅ bahan_logs inserted for bahan_id=${id}, harga_baru=${harga_baru}`);
+}
+
 
     // 6. Snapshot HPP baru
     let newHppMap = new Map();
@@ -296,20 +313,20 @@ app.patch("/bahan/:id", async (req, res) => {
       newHppRows.forEach(r => newHppMap.set(r.produk_id, Number(r.hpp_per_porsi)));
     }
 
-    // 7. Simpan log HPP
-    if (affectedProdukIds.length) {
-      const hppLogs = affectedProdukIds.map(pid => ({
-        produk_id: pid,
-        bahan_id: id,
-        old_hpp: oldHppMap.get(pid) ?? null,
-        new_hpp: newHppMap.get(pid) ?? null,
-        changed_by: changed_by || null,
-        cause: "harga_bahan"
-      }));
+// 7. Simpan log HPP
+if (affectedProdukIds.length) {
+  const hppLogs = affectedProdukIds.map(pid => ({
+    produk_id: pid,
+    bahan_id: id,
+    old_hpp: oldHppMap.get(pid) ?? null,
+    new_hpp: newHppMap.get(pid) ?? null,
+    changed_by: isUUID(changed_by) ? changed_by : null, // ✅ tambahin ini
+    cause: "harga_bahan"
+  }));
 
-      const { error: eHppLog } = await supabase.from("hpp_recalc_logs").insert(hppLogs);
-      if (eHppLog) return res.status(400).json({ error: eHppLog.message });
-    }
+  const { error: eHppLog } = await supabase.from("hpp_recalc_logs").insert(hppLogs);
+  if (eHppLog) return res.status(400).json({ error: eHppLog.message });
+}
 
     // 8. Response akhir
     res.json({
@@ -482,35 +499,22 @@ app.get('/hpp', async (req, res) => {
   }
 });
 
-app.get('/promo', async (req, res) => {
+// === GET /promo ===
+// ambil daftar promo dari tabel public.promo (sesuai kontrak FE)
+app.get('/promo', async (_req, res) => {
   try {
-    // ambil semua produk dengan HPP & harga jual user
     const { data, error } = await supabase
-      .from('v_pricing_final')
-      .select('produk_id, nama_produk, total_hpp, harga_rek_standar, harga_jual_user');
-
+      .from('promo')
+      .select('id, nama, tipe, nilai, produk_ids, aktif')
+      .order('created_at', { ascending: false });
     if (error) throw error;
-
-    // hitung margin
-    const result = data.map(p => ({
-      produk_id: p.produk_id,
-      nama_produk: p.nama_produk,
-      total_hpp: p.total_hpp,
-      harga_jual_user: p.harga_jual_user,
-      margin_persen: p.harga_rek_standar && p.hpp_total_per_porsi
-  ? ((p.harga_rek_standar - p.hpp_total_per_porsi) / p.harga_rek_standar * 100).toFixed(1)
-  : 0
-
-    }));
-
-    // urutkan dari margin tertinggi
-    result.sort((a, b) => b.margin_persen - a.margin_persen);
-
-    res.json({ ok: true, data: result });
+    res.json({ ok: true, data });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    console.error('GET /promo error:', e);
+    res.status(500).json({ ok: false, message: e.message });
   }
 });
+
 
 // === GET /setup/get ===
 // Ambil ulang data setup user (bahan, overhead, tenaga kerja)
@@ -856,8 +860,41 @@ app.get('/logs/promo', async (req, res, next) => {
 const setupRouter = require('./routes/setup');
 app.use('/setup', setupRouter);
 
+// === RESEP (BOM PRODUK) ===
+const setupResepRouter = require('./routes/setup-resep');
+app.use('/setup/resep', setupResepRouter);
+
+// === RESEP DETAIL ===
+const resepDetailRouter = require("./routes/resep-detail");
+app.use("/resep/detail", resepDetailRouter);
+
+// === LICENSE (SaaS) ===
+const licenseRouter = require("./routes/license.js");
+app.use("/license", licenseRouter);
+
+// === WEBHOOK MAYAR ===
+const webhookRouter = require("./routes/webhook");
+app.use("/webhook", webhookRouter);
+
+
+// === AI Suggest Proxy ===
+const aiRouter = require('./routes/ai');
+app.use('/ai', aiRouter);
+
+// === INVENTORY ===
+const inventoryRouter = require("./routes/inventory");
+app.use("/inventory", inventoryRouter);
+
+// === DASHBOARD ===
+const dashboardRouter = require("./routes/dashboard");
+app.use("/dashboard", dashboardRouter);
+
 // --- PORT & GLOBAL ERROR HANDLER ---
 const PORT = process.env.PORT || 4000;
+
+// --- PRICING KE AI ---
+const pricingRouter = require('./routes/pricing');
+app.use('/pricing', pricingRouter);
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -869,6 +906,10 @@ app.use((err, req, res, next) => {
 });
 
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
+
+
+
+

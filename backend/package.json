@@ -13,10 +13,12 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "axios": "^1.12.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
-    "zod": "^4.1.8"
+    "openai": "4.104.0",
+    "zod": "3.23.8"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
