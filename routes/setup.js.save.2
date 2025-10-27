@@ -35,48 +35,81 @@ router.get("/bahan", requireOwner, async (req, res) => {
   }
 });
 
-// ===============================
-// POST /setup/bahan (FINAL FORMAT UNTUK FE)
-// ===============================
-router.post("/bahan", requireOwner, async (req, res) => {
+/**
+ * POST /setup/bahan
+ * body: { id?, nama, satuan, harga }
+ * - Kalau ada id → update
+ * - Kalau tidak ada id → insert baru
+ */
+router.post('/bahan', requireOwner, async (req, res) => {
   try {
+    const { id, nama, satuan, harga } = req.body || {};
     const owner_id = req.owner_id;
-    const { nama, satuan, harga, stok_awal, keterangan } = req.body || {};
 
-    if (!nama || !satuan || !harga) {
+    if (!nama || !satuan || typeof harga !== "number") {
       return res.status(400).json({
         ok: false,
-        message: "nama, satuan, dan harga wajib diisi",
+        error: "Param wajib: nama(string), satuan(string), harga(number)",
       });
     }
 
-    const { data, error } = await supabase
-      .from("bahan")
-      .insert([
-        {
-          owner_id,
+    // === UPDATE MODE ===
+    if (id) {
+      const { data, error } = await supabase
+        .from("bahan")
+        .update({
           nama_bahan: nama,
           satuan,
-          harga: Number(harga)
+          harga,
+        })
+        .eq("id", id)
+        .eq("owner_id", owner_id)
+        .select();
+
+      if (error)
+        return res.status(500).json({ ok: false, error: error.message });
+
+      return res.json({
+        ok: true,
+        mode: "update",
+        data: {
+          id: data.id,
+          nama: data.nama_bahan,
+          satuan: data.satuan,
+          harga_per_satuan: data.harga,
         },
-       ])
-       .select("id, nama_bahan, satuan, harga")
-       .single();
+      });
+    }
 
-    if (error) throw error;
+    // === CREATE MODE ===
+    const payload = {
+      nama_bahan: nama,
+      satuan,
+      harga,
+      owner_id,
+    };
 
-    return res.status(201).json({
+    const { data, error } = await supabase
+      .from("bahan")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error)
+      return res.status(500).json({ ok: false, error: error.message });
+
+    res.status(201).json({
       ok: true,
+      mode: "create",
       data: {
         id: data.id,
         nama: data.nama_bahan,
         satuan: data.satuan,
-        harga: data.harga,
+        harga_per_satuan: data.harga,
       },
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: err.message });
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -346,19 +379,6 @@ router.put('/bahan/:id', requireOwner, async (req, res) => {
     .select();
 
   if (error) return res.status(500).json({ ok:false, error:error.message });
-  if (data && data.length > 0 && harga !== undefined) {
-  const updated = data[0];
-  await supabase.from("bahan_logs").insert({
-    owner_id: req.owner_id,
-    bahan_id: updated.id,
-    harga_lama: updated.harga,
-    harga_baru: Number(harga),
-    created_by: req.owner_id,
-    source: "backend-api",
-    changed_by: "auto-log"
-  });
-}
-
   res.json({ ok:true, data });
 });
 
@@ -392,270 +412,63 @@ router.get("/produk", requireOwner, async (req, res) => {
   }
 });
 
-// ===============================
-// POST /setup/produk (UPSERT FINAL)
-// body: { id?, nama, kategori?, harga }
-// ===============================
-router.post("/produk", requireOwner, async (req, res) => {
-  try {
-    const owner_id = req.owner_id;
-    const { id, nama, kategori, harga } = req.body || {};
-
-    if (!nama || harga === undefined) {
-      return res.status(400).json({
-        ok: false,
-        message: "nama dan harga wajib diisi",
-      });
-    }
-
-    // payload aman (tanpa kolom aktif/is_active)
-    const payload = {
-      owner_id,
-      nama_produk: String(nama).trim(),
-      kategori: kategori ? String(kategori).trim() : null,
-      harga_jual: Number(harga),
-    };
-
-    // === UPDATE MODE (jika id dikirim)
-    if (id) {
-      const { data, error } = await supabase
-        .from("produk")
-        .update(payload)
-        .eq("id", id)
-        .eq("owner_id", owner_id)
-        .select("id, nama_produk, kategori, harga_jual")
-        .single();
-
-      if (error) throw error;
-      return res.json({
-        ok: true,
-        mode: "update",
-        data: {
-          id: data.id,
-          nama: data.nama_produk,
-          kategori: data.kategori,
-          harga: data.harga_jual,
-        },
-      });
-    }
-
-    // === CREATE MODE
-    const { data, error } = await supabase
-      .from("produk")
-      .insert(payload)
-      .select("id, nama_produk, kategori, harga_jual")
-      .single();
-
-    if (error) throw error;
-    return res.status(201).json({
-      ok: true,
-      mode: "create",
-      data: {
-        id: data.id,
-        nama: data.nama_produk,
-        kategori: data.kategori,
-        harga: data.harga_jual,
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-// ===============================
-// PUT /setup/produk/:id (FINAL UPDATE)
-// body: { nama?, kategori?, harga? }
-// ===============================
-router.put("/produk/:id", requireOwner, async (req, res) => {
-  try {
-    const owner_id = req.owner_id;
-    const { id } = req.params;
-    const { nama, kategori, harga } = req.body || {};
-
-    const payload = {};
-    if (nama !== undefined) payload.nama_produk = String(nama).trim();
-    if (kategori !== undefined) payload.kategori = String(kategori).trim();
-    if (harga !== undefined) payload.harga_jual = Number(harga);
-
-    if (Object.keys(payload).length === 0) {
-      return res.status(400).json({ ok: false, message: "tidak ada field yang diupdate" });
-    }
-
-    const { data, error } = await supabase
-      .from("produk")
-      .update(payload)
-      .eq("id", id)
-      .eq("owner_id", owner_id)
-      .select("id, nama_produk, kategori, harga_jual")
-      .single();
-
-    if (error) throw error;
-
-    return res.json({
-      ok: true,
-      data: {
-        id: data.id,
-        nama: data.nama_produk,
-        kategori: data.kategori,
-        harga: data.harga_jual
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-// ===============================
-// DELETE /setup/produk/:id (FINAL)
-// ===============================
-router.delete("/produk/:id", requireOwner, async (req, res) => {
-  try {
-    const owner_id = req.owner_id;
-    const { id } = req.params;
-
-    const { data, error } = await supabase
-      .from("produk")
-      .delete()
-      .eq("id", id)
-      .eq("owner_id", owner_id)
-      .select("id, nama_produk");
-
-    if (error) throw error;
-
-    return res.json({
-      ok: true,
-      data: {
-        deleted: data?.length || 0,
-        items: data
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-// ===============================
-// POST /setup/produk/delete (ALTERNATIF)
-// body: { id }
-// ===============================
-router.post("/produk/delete", requireOwner, async (req, res) => {
-  try {
-    const owner_id = req.owner_id;
-    const { id } = req.body || {};
-
-    if (!id) {
-      return res.status(400).json({ ok: false, message: "id wajib diisi" });
-    }
-
-    const { data, error } = await supabase
-      .from("produk")
-      .delete()
-      .eq("id", id)
-      .eq("owner_id", owner_id)
-      .select("id, nama_produk");
-
-    if (error) throw error;
-
-    return res.json({
-      ok: true,
-      data: {
-        deleted: data?.length || 0,
-        items: data
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, message: err.message });
-  }
-});
-
-
-// === Bill of Materials ===
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
-function normalizeUuid(v) {
-  if (v == null) return null;
-  let s = String(v).trim();
-  s = s.replace(/\\+/g, '');
-  if (/^".*"$/.test(s)) {
-    try { s = JSON.parse(s); } catch (_) {}
-  }
-  s = s.replace(/[^0-9a-fA-F-]/g, '');
-  if (!UUID_RE.test(s)) return null;
-  return s.toLowerCase();
-}
-
+// POST /setup/bom
+// body contoh: { produk, output_per_batch, output_per_bulan, items:[{bahan_id,nama_bahan,qty,unit,harga_satuan,subtotal}], alokasi_overhead_per_unit, alokasi_tk_per_unit, cogs_per_unit, harga_jual, margin_rp, margin_pct }
 router.post('/bom', requireOwner, async (req, res) => {
   try {
     const { owner_id } = req;
-    const { produk, items } = req.body || {};
+    const p = req.body || {};
 
-    if (!produk) return res.status(400).json({ ok: false, error: 'produk required' });
-    if (!Array.isArray(items) || items.length === 0)
-      return res.status(400).json({ ok: false, error: 'items[] required' });
-
-    // cari atau buat produk
-    let produk_id;
-    const { data: existing } = await supabase
-      .from('produk')
-      .select('id')
-      .eq('nama_produk', produk)
-      .eq('owner_id', owner_id)
-      .maybeSingle();
-
-    if (existing) {
-      produk_id = existing.id;
-    } else {
-      const { data: newProd, error: errProd } = await supabase
-        .from('produk')
-        .insert({ nama_produk: produk, owner_id })
-        .select()
-        .single();
-      if (errProd) throw errProd;
-      produk_id = newProd.id;
+    // --- validasi minimal
+    if (!p.produk) return res.status(400).json({ ok:false, error:'produk required' });
+    if (!Array.isArray(p.items) || p.items.length === 0) {
+      return res.status(400).json({ ok:false, error:'items[] required' });
     }
 
-    // debug
-    console.log('[BOM] produk_id:', produk_id);
-    console.log('[BOM] raw bahan_id:', items.map(i => i?.bahan_id));
+    // --- sanitasi & ringkasan ringan
+    const items = p.items.map(it => ({
+      bahan_id: it.bahan_id,
+      nama_bahan: it.nama_bahan,
+      qty: Number(it.qty || 0),
+      unit: it.unit,
+      harga_satuan: Number(it.harga_satuan || 0),
+      subtotal: Number(it.subtotal || 0),
+    }));
 
-    const rows = items.map((it, idx) => {
-      const cleanBahanId = normalizeUuid(it?.bahan_id);
-      if (!cleanBahanId) {
-        throw new Error(`items[${idx}].bahan_id invalid UUID`);
+    const total_bahan = items.reduce((a,b)=> a + (Number(b.subtotal)||0), 0);
+    const summary = {
+      produk: String(p.produk),
+      output_per_batch: Number(p.output_per_batch || 0),
+      output_per_bulan: Number(p.output_per_bulan || 0),
+      total_bahan,
+      alokasi_overhead_per_unit: Number(p.alokasi_overhead_per_unit || 0),
+      alokasi_tk_per_unit: Number(p.alokasi_tk_per_unit || 0),
+      cogs_per_unit: Number(p.cogs_per_unit || 0),
+      harga_jual: Number(p.harga_jual || 0),
+      margin_rp: Number(p.margin_rp || 0),
+      margin_pct: Number(p.margin_pct || 0),
+    };
+
+    // === Versi A: terima & kirim balik (FE bisa lanjut UI) ===
+    // NOTE: Belum simpan ke DB. Step berikutnya kita mapping ke tabel produk+komposisi.
+
+    return res.json({
+      ok: true,
+      mode: 'received',
+      owner_id,
+      data: {
+        summary,
+        items
       }
-      return {
-        produk_id,
-        bahan_id: cleanBahanId,
-        qty: Number(it?.qty || 0),
-        unit: (it?.satuan || it?.unit || '').trim(),
-        subtotal: Number(it?.subtotal || 0),
-        owner_id
-      };
     });
 
-    console.log('[BOM] normalized rows:', rows);
-
-    // hapus komposisi lama
-    await supabase.from('komposisi').delete().eq('produk_id', produk_id);
-
-    // insert komposisi baru
-    const { error: insertErr } = await supabase
-      .from('komposisi')
-      .insert(rows);
-
-    if (insertErr) throw insertErr;
-
-    return res.json({ ok: true, mode: 'saved', produk_id, owner_id, inserted: rows.length });
-
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
+    return res.status(500).json({ ok:false, error: e.message });
   }
 });
 
 
+
 module.exports = router;
+
 

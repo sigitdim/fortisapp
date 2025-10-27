@@ -403,7 +403,7 @@ if (!isUUID.test(produk_id)) {
   return res.status(400).json({ ok: false, error: "produk_id must be a valid UUID" });
 }
 
-    // 🧮 ambil data HPP bahan
+    //  ambil data HPP bahan
     const { data: bahanData } = await supabase
       .from("v_hpp_final")
       .select("hpp_per_porsi")
@@ -860,6 +860,14 @@ app.get('/logs/promo', async (req, res, next) => {
 const setupRouter = require('./routes/setup');
 app.use('/setup', setupRouter);
 
+// === RESEP (BOM PRODUK) ===
+const setupResepRouter = require('./routes/setup-resep');
+app.use('/setup/resep', setupResepRouter);
+
+// === RESEP DETAIL ===
+const resepDetailRouter = require("./routes/resep-detail");
+app.use("/resep/detail", resepDetailRouter);
+
 // === LICENSE (SaaS) ===
 const licenseRouter = require("./routes/license.js");
 app.use("/license", licenseRouter);
@@ -867,7 +875,6 @@ app.use("/license", licenseRouter);
 // === WEBHOOK MAYAR ===
 const webhookRouter = require("./routes/webhook");
 app.use("/webhook", webhookRouter);
-
 
 // === AI Suggest Proxy ===
 const aiRouter = require('./routes/ai');
@@ -877,9 +884,25 @@ app.use('/ai', aiRouter);
 const inventoryRouter = require("./routes/inventory");
 app.use("/inventory", inventoryRouter);
 
+// === INVENTORY VOID ===
+const inventoryDeleteRouter = require("./routes/inventory-delete");
+app.use("/inventory", inventoryDeleteRouter);
+
 // === DASHBOARD ===
 const dashboardRouter = require("./routes/dashboard");
 app.use("/dashboard", dashboardRouter);
+
+// === ANALYTICS ===
+const analyticsRouter = require("./routes/analytics");
+app.use("/analytics", analyticsRouter);
+
+// === REPORT ===
+const reportRouter = require("./routes/report");
+app.use("/report", reportRouter);
+
+// === HEALTH CHECK ===
+const healthRouter = require("./routes/health");
+app.use("/", healthRouter);
 
 // --- PORT & GLOBAL ERROR HANDLER ---
 const PORT = process.env.PORT || 4000;
@@ -901,5 +924,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Backend running on port ${PORT}`);
 });
+
+
 
 

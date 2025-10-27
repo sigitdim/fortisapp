@@ -35,12 +35,11 @@ router.get("/overview", async (req, res) => {
     // 1️⃣ DATA MARGIN PRODUK (v_pricing_final)
     // =======================================================
     const selectPricing = `
-      nama_produk,
-      hpp_per_porsi,
-      harga_jual_user,
-      harga_rekomendasi_standard,
-      owner_id
-    `;
+       nama_produk,
+       hpp,
+       harga_rekomendasi,
+       owner_id
+     `;
 
     const { data: marginAll, error: errMargin } = await supabase
       .from("v_pricing_final")
@@ -51,16 +50,16 @@ router.get("/overview", async (req, res) => {
 
     // hitung margin manual (karena view gak punya margin_pct)
     const withMargin = (marginAll || []).map((p) => {
-      const harga = Number(p.harga_jual_user) > 0 ? Number(p.harga_jual_user) : Number(p.harga_rekomendasi_standard);
-      const hpp = Number(p.hpp_per_porsi) || 0;
-      const marginPct = harga > 0 ? ((harga - hpp) / harga) * 100 : 0;
-      return {
-        nama_produk: p.nama_produk,
-        hpp,
-        harga_jual: harga,
-        margin_pct: Number(marginPct.toFixed(1))
-      };
-    });
+  const harga = Number(p.harga_rekomendasi) || 0;
+  const hpp = Number(p.hpp) || 0;
+  const marginPct = harga > 0 ? ((harga - hpp) / harga) * 100 : 0;
+  return {
+    nama_produk: p.nama_produk,
+    hpp,
+    harga_jual: harga,
+    margin_pct: Number(marginPct.toFixed(1))
+  };
+});
 
     const marginTop = [...withMargin].sort((a, b) => b.margin_pct - a.margin_pct).slice(0, LIMIT_MARGIN);
     const marginBottom = [...withMargin].sort((a, b) => a.margin_pct - b.margin_pct).slice(0, LIMIT_MARGIN);
@@ -70,12 +69,11 @@ router.get("/overview", async (req, res) => {
     // =======================================================
     const { data: lowStock, error: errLow } = await supabase
       .from("v_stok_summary")
-      .select("bahan_nama, saldo_stok, satuan_dasar, owner_id")
+      .select("nama_bahan, stok_total, satuan, owner_id")
       .eq("owner_id", ownerId)
-      .lte("saldo_stok", lowStockThr)
-      .order("saldo_stok", { ascending: true })
+      .lte("stok_total", lowStockThr)
+      .order("stok_total", { ascending: true })
       .limit(LIMIT_LOW_STOCK);
-    if (errLow) throw errLow;
 
     // =======================================================
     // 3️⃣ MUTASI STOK TERAKHIR (stok_logs)
@@ -94,8 +92,8 @@ router.get("/overview", async (req, res) => {
       .limit(LIMIT_RECENT * 2); // ambil 2x limit biar bisa filter in/out
     if (errLogs) throw errLogs;
 
-    const recentIn = recentLogs.filter((r) => r.type === "in").slice(0, LIMIT_RECENT);
-    const recentOut = recentLogs.filter((r) => r.type === "out").slice(0, LIMIT_RECENT);
+      const recentIn = recentLogs.filter((r) => r.type === "IN").slice(0, LIMIT_RECENT);
+      const recentOut = recentLogs.filter((r) => r.type === "OUT").slice(0, LIMIT_RECENT);
 
     // =======================================================
     // 4️⃣ REKOMENDASI PROMO (rule-based)
