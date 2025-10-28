@@ -403,7 +403,7 @@ if (!isUUID.test(produk_id)) {
   return res.status(400).json({ ok: false, error: "produk_id must be a valid UUID" });
 }
 
-    // 🧮 ambil data HPP bahan
+    //  ambil data HPP bahan
     const { data: bahanData } = await supabase
       .from("v_hpp_final")
       .select("hpp_per_porsi")
@@ -876,7 +876,6 @@ app.use("/license", licenseRouter);
 const webhookRouter = require("./routes/webhook");
 app.use("/webhook", webhookRouter);
 
-
 // === AI Suggest Proxy ===
 const aiRouter = require('./routes/ai');
 app.use('/ai', aiRouter);
@@ -885,9 +884,29 @@ app.use('/ai', aiRouter);
 const inventoryRouter = require("./routes/inventory");
 app.use("/inventory", inventoryRouter);
 
+// === INVENTORY VOID ===
+const inventoryDeleteRouter = require("./routes/inventory-delete");
+app.use("/inventory", inventoryDeleteRouter);
+
 // === DASHBOARD ===
 const dashboardRouter = require("./routes/dashboard");
 app.use("/dashboard", dashboardRouter);
+
+// === ANALYTICS ===
+const analyticsRouter = require("./routes/analytics");
+app.use("/analytics", analyticsRouter);
+
+// === REPORT ===
+const reportRouter = require("./routes/report");
+app.use("/report", reportRouter);
+
+// === PRODUK ===
+const produkRouter = require("./routes/produk");
+app.use("/produk", produkRouter);
+
+// === HEALTH CHECK ===
+const healthRouter = require("./routes/health");
+app.use("/", healthRouter);
 
 // --- PORT & GLOBAL ERROR HANDLER ---
 const PORT = process.env.PORT || 4000;

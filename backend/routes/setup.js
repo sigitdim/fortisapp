@@ -29,102 +29,84 @@ router.get("/bahan", requireOwner, async (req, res) => {
       .order("created_at", { ascending: false });
 
     if (error) throw error;
+    res.set("Cache-Control", "max-age=300");
     res.json({ ok: true, data });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-/**
- * POST /setup/bahan
- * body: { id?, nama, satuan, harga }
- * - Kalau ada id → update
- * - Kalau tidak ada id → insert baru
- */
-router.post('/bahan', requireOwner, async (req, res) => {
+// ===============================
+// POST /setup/bahan (FINAL FORMAT UNTUK FE)
+// ===============================
+router.post("/bahan", requireOwner, async (req, res) => {
   try {
-    const { id, nama, satuan, harga } = req.body || {};
     const owner_id = req.owner_id;
+    const { nama, satuan, harga, stok_awal, keterangan } = req.body || {};
 
-    if (!nama || !satuan || typeof harga !== "number") {
+    if (!nama || !satuan || !harga) {
       return res.status(400).json({
         ok: false,
-        error: "Param wajib: nama(string), satuan(string), harga(number)",
+        message: "nama, satuan, dan harga wajib diisi",
       });
     }
-
-    // === UPDATE MODE ===
-    if (id) {
-      const { data, error } = await supabase
-        .from("bahan")
-        .update({
-          nama_bahan: nama,
-          satuan,
-          harga,
-        })
-        .eq("id", id)
-        .eq("owner_id", owner_id)
-        .select();
-
-      if (error)
-        return res.status(500).json({ ok: false, error: error.message });
-
-      return res.json({
-        ok: true,
-        mode: "update",
-        data: {
-          id: data.id,
-          nama: data.nama_bahan,
-          satuan: data.satuan,
-          harga_per_satuan: data.harga,
-        },
-      });
-    }
-
-    // === CREATE MODE ===
-    const payload = {
-      nama_bahan: nama,
-      satuan,
-      harga,
-      owner_id,
-    };
 
     const { data, error } = await supabase
       .from("bahan")
-      .insert(payload)
-      .select()
-      .single();
+      .insert([
+        {
+          owner_id,
+          nama_bahan: nama,
+          satuan,
+          harga: Number(harga)
+        },
+       ])
+       .select("id, nama_bahan, satuan, harga")
+       .single();
 
-    if (error)
-      return res.status(500).json({ ok: false, error: error.message });
+    if (error) throw error;
 
-    res.status(201).json({
+    return res.status(201).json({
       ok: true,
-      mode: "create",
       data: {
         id: data.id,
         nama: data.nama_bahan,
         satuan: data.satuan,
-        harga_per_satuan: data.harga,
+        harga: data.harga,
       },
     });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    console.error(err);
+    return res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-/**
- * GET /setup/overhead
- */
-router.get('/overhead', requireOwner, async (req, res) => {
-  const { data, error } = await supabase
-    .from('overhead')
-    .select('*')
-    .eq('owner_id', req.owner_id)
-    .order('created_at', { ascending: false });
+// ===============================
+// GET /setup/overhead
+// ===============================
+router.get("/overhead", requireOwner, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("overhead")
+      .select("*")
+      .eq("owner_id", req.owner_id)
+      .order("created_at", { ascending: false });
 
-  if (error) return res.status(500).json({ ok:false, error: error.message });
-  res.json({ ok:true, count: data?.length || 0, data });
+    if (error)
+      return res.status(500).json({ ok: false, error: error.message });
+
+    //  Cache 5 menit
+    res.set("Cache-Control", "max-age=300");
+
+    res.json({
+      ok: true,
+      count: data?.length || 0,
+      data,
+    });
+  } catch (err) {
+    console.error("Error /setup/overhead:", err);
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 /**
@@ -162,18 +144,32 @@ res.status(201).json({
 });
 });
 
-/**
- * GET /setup/tenaga_kerja
- */
-router.get('/tenaga_kerja', requireOwner, async (req, res) => {
-  const { data, error } = await supabase
-    .from('tenaga_kerja')
-    .select('*')
-    .eq('owner_id', req.owner_id)
-    .order('created_at', { ascending: false });
+// ===============================
+// GET /setup/tenaga_kerja
+// ===============================
+router.get("/tenaga_kerja", requireOwner, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("tenaga_kerja")
+      .select("*")
+      .eq("owner_id", req.owner_id)
+      .order("created_at", { ascending: false });
 
-  if (error) return res.status(500).json({ ok:false, error: error.message });
-  res.json({ ok:true, count: data?.length || 0, data });
+    if (error)
+      return res.status(500).json({ ok: false, error: error.message });
+
+    // Cache 5 menit
+    res.set("Cache-Control", "max-age=300");
+
+    res.json({
+      ok: true,
+      count: data?.length || 0,
+      data,
+    });
+  } catch (err) {
+    console.error("Error /setup/tenaga_kerja:", err);
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 /**
@@ -379,6 +375,19 @@ router.put('/bahan/:id', requireOwner, async (req, res) => {
     .select();
 
   if (error) return res.status(500).json({ ok:false, error:error.message });
+  if (data && data.length > 0 && harga !== undefined) {
+  const updated = data[0];
+  await supabase.from("bahan_logs").insert({
+    owner_id: req.owner_id,
+    bahan_id: updated.id,
+    harga_lama: updated.harga,
+    harga_baru: Number(harga),
+    created_by: req.owner_id,
+    source: "backend-api",
+    changed_by: "auto-log"
+  });
+}
+
   res.json({ ok:true, data });
 });
 
@@ -397,20 +406,214 @@ router.delete('/bahan/:id', requireOwner, async (req, res) => {
   res.json({ ok:true, data });
 });
 
-// === GET /setup/produk ===
+// ===============================
+// GET /setup/produk
+// ===============================
 router.get("/produk", requireOwner, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("produk")
       .select("id, nama_produk, kategori, harga_jual")
-      .eq("owner_id", req.owner_id);
+      .eq("owner_id", req.owner_id)
+      .order("nama_produk", { ascending: true });
 
-    if (error) throw error;
-    res.json({ ok: true, data });
+    if (error)
+      return res.status(500).json({ ok: false, error: error.message });
+
+    // Cache 5 menit
+    res.set("Cache-Control", "max-age=300");
+
+    res.json({
+      ok: true,
+      count: data?.length || 0,
+      data,
+    });
   } catch (err) {
+    console.error("Error /setup/produk:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// ===============================
+// POST /setup/produk (UPSERT FINAL)
+// body: { id?, nama, kategori?, harga }
+// ===============================
+router.post("/produk", requireOwner, async (req, res) => {
+  try {
+    const owner_id = req.owner_id;
+    const { id, nama, kategori, harga } = req.body || {};
+
+    if (!nama || harga === undefined) {
+      return res.status(400).json({
+        ok: false,
+        message: "nama dan harga wajib diisi",
+      });
+    }
+
+    // payload aman (tanpa kolom aktif/is_active)
+    const payload = {
+      owner_id,
+      nama_produk: String(nama).trim(),
+      kategori: kategori ? String(kategori).trim() : null,
+      harga_jual: Number(harga),
+    };
+
+    // === UPDATE MODE (jika id dikirim)
+    if (id) {
+      const { data, error } = await supabase
+        .from("produk")
+        .update(payload)
+        .eq("id", id)
+        .eq("owner_id", owner_id)
+        .select("id, nama_produk, kategori, harga_jual")
+        .single();
+
+      if (error) throw error;
+      return res.json({
+        ok: true,
+        mode: "update",
+        data: {
+          id: data.id,
+          nama: data.nama_produk,
+          kategori: data.kategori,
+          harga: data.harga_jual,
+        },
+      });
+    }
+
+    // === CREATE MODE
+    const { data, error } = await supabase
+      .from("produk")
+      .insert(payload)
+      .select("id, nama_produk, kategori, harga_jual")
+      .single();
+
+    if (error) throw error;
+    return res.status(201).json({
+      ok: true,
+      mode: "create",
+      data: {
+        id: data.id,
+        nama: data.nama_produk,
+        kategori: data.kategori,
+        harga: data.harga_jual,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// ===============================
+// PUT /setup/produk/:id (FINAL UPDATE)
+// body: { nama?, kategori?, harga? }
+// ===============================
+router.put("/produk/:id", requireOwner, async (req, res) => {
+  try {
+    const owner_id = req.owner_id;
+    const { id } = req.params;
+    const { nama, kategori, harga } = req.body || {};
+
+    const payload = {};
+    if (nama !== undefined) payload.nama_produk = String(nama).trim();
+    if (kategori !== undefined) payload.kategori = String(kategori).trim();
+    if (harga !== undefined) payload.harga_jual = Number(harga);
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ ok: false, message: "tidak ada field yang diupdate" });
+    }
+
+    const { data, error } = await supabase
+      .from("produk")
+      .update(payload)
+      .eq("id", id)
+      .eq("owner_id", owner_id)
+      .select("id, nama_produk, kategori, harga_jual")
+      .single();
+
+    if (error) throw error;
+
+    return res.json({
+      ok: true,
+      data: {
+        id: data.id,
+        nama: data.nama_produk,
+        kategori: data.kategori,
+        harga: data.harga_jual
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// ===============================
+// DELETE /setup/produk/:id (FINAL)
+// ===============================
+router.delete("/produk/:id", requireOwner, async (req, res) => {
+  try {
+    const owner_id = req.owner_id;
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from("produk")
+      .delete()
+      .eq("id", id)
+      .eq("owner_id", owner_id)
+      .select("id, nama_produk");
+
+    if (error) throw error;
+
+    return res.json({
+      ok: true,
+      data: {
+        deleted: data?.length || 0,
+        items: data
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
+// ===============================
+// POST /setup/produk/delete (ALTERNATIF)
+// body: { id }
+// ===============================
+router.post("/produk/delete", requireOwner, async (req, res) => {
+  try {
+    const owner_id = req.owner_id;
+    const { id } = req.body || {};
+
+    if (!id) {
+      return res.status(400).json({ ok: false, message: "id wajib diisi" });
+    }
+
+    const { data, error } = await supabase
+      .from("produk")
+      .delete()
+      .eq("id", id)
+      .eq("owner_id", owner_id)
+      .select("id, nama_produk");
+
+    if (error) throw error;
+
+    return res.json({
+      ok: true,
+      data: {
+        deleted: data?.length || 0,
+        items: data
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 
 // === Bill of Materials ===
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -497,4 +700,5 @@ router.post('/bom', requireOwner, async (req, res) => {
 
 
 module.exports = router;
+
 

@@ -1,0 +1,4 @@
+export function toCSV<T extends Record<string,any>>(rows:T[], headers?:string[]){ if(!rows?.length) return ""; const cols=headers?.length?headers:Array.from(rows.reduce((s,r)=>{Object.keys(r).forEach(k=>s.add(k));return s;},new Set<string>())); const esc=(v:any)=>{if(v===null||v===undefined)return""; const s=String(v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s}; return [cols.join(","),...rows.map(r=>cols.map(c=>esc(r[c])).join(","))].join("\n");}
+export function downloadCSV(filename:string,csv:string){const b=new Blob([csv],{type:"text/csv;charset=utf-8;"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=filename;a.click();URL.revokeObjectURL(u);}
+export function exportToCsv<T extends Record<string,any>>(rows:T[],filename:string,headers?:string[]){downloadCSV(filename,toCSV(rows,headers))}
+export default {toCSV,downloadCSV,exportToCsv};
