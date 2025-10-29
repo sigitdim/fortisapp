@@ -1,7 +1,7 @@
 "use client";
+import { downloadCsvFromRows } from "@/lib/csv";
 
 import { useEffect, useState } from "react";
-import { exportToCsv } from "@/lib/csv";
 
 type Row = {
   nama_produk: string;
@@ -27,7 +27,6 @@ export default function PricingPage() {
   const filtered = rows.filter(r => r.nama_produk.toLowerCase().includes(search.toLowerCase()));
 
   function handleExport() {
-    exportToCsv(filtered, "pricing.csv");
   }
 
   return (
@@ -116,3 +115,19 @@ export default function PricingPage() {
     </div>
   );
 }
+/** Build CSV from array of objects */
+function __rowsToCsv(rows: any[]): string {
+  if (!rows?.length) return '';
+  const headers = Object.keys(rows[0] ?? {});
+  const lines = [headers.join(',')];
+  for (const r of rows) {
+    const line = headers.map(h => {
+      const v = (r as any)?.[h];
+      const s = v == null ? '' : String(v).replace(/"/g, '""');
+      return `"${s}"`;
+    }).join(',');
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+

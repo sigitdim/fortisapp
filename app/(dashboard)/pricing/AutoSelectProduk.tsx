@@ -1,3 +1,4 @@
+'use client'
 "use client";
 
 import { useEffect } from "react";
@@ -12,7 +13,7 @@ import { supabase } from "@/lib/supabaseClient";
 export default function AutoSelectProduk() {
   const router = useRouter();
   const sp = useSearchParams();
-  const produkId = sp.get("produk_id") || "";
+  const produkId = sp?.get("produk_id") ?? "";
 
   useEffect(() => {
     if (produkId) return;

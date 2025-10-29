@@ -15,7 +15,7 @@ type Produk = {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || "https://api.fortislab.id";
 
-// NOTE: Owner ID priority: localStorage.owner_id → ENV → fallback known dev
+// Ambil owner_id: localStorage > ENV > fallback dev
 const getOwnerId = (): string => {
   if (typeof window !== "undefined") {
     const ls = window.localStorage.getItem("owner_id");
@@ -27,48 +27,83 @@ const getOwnerId = (): string => {
   );
 };
 
-// Normalizer tahan banting: dukung beberapa variasi nama field dari BE
+// ------- Utils -------
+const coerceBool = (v: any): boolean => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string")
+    return ["1","true","aktif","active","yes","ya"].includes(v.toLowerCase());
+  return true;
+};
+
+// Normalizer: tangkap sebanyak mungkin alias
 const normalizeProduk = (raw: RawProduk): Produk => {
+  const id = String(raw?.id ?? raw?.produk_id ?? raw?.product_id ?? "");
+
   const nama =
     raw?.nama ??
+    raw?.nama_produk ??
     raw?.name ??
     raw?.product_name ??
+    raw?.product ??
+    raw?.label ??
     raw?.title ??
     "-";
 
   const kategori =
     raw?.kategori ??
-    raw?.category ??
+    raw?.kategori_nama ??
+    raw?.kategori_name ??
     raw?.kategori_produk ??
+    raw?.category ??
+    raw?.category_name ??
+    raw?.jenis ??
+    raw?.tipe ??
     raw?.type ??
     "-";
 
-  const hargaRaw =
-    raw?.harga_jual_user ??
-    raw?.harga ??
-    raw?.price ??
-    raw?.harga_jual ??
-    0;
+  const harga =
+    Number(
+      raw?.harga ??
+      raw?.harga_jual_user ??
+      raw?.harga_user ??
+      raw?.harga_jual ??
+      raw?.price ??
+      raw?.selling_price ??
+      0
+    );
 
-  const aktif =
-    (typeof raw?.aktif === "boolean" ? raw?.aktif : undefined) ??
-    (typeof raw?.is_active === "boolean" ? raw?.is_active : undefined) ??
-    true;
+  const aktif = coerceBool(
+    raw?.aktif ?? raw?.is_active ?? raw?.active ?? raw?.status ?? true
+  );
 
   return {
-    id: String(raw?.id ?? ""),
+    id,
     nama: String(nama ?? "-"),
     kategori: String(kategori ?? "-"),
-    harga: Number(hargaRaw ?? 0),
-    aktif: Boolean(aktif),
+    harga: isFinite(harga) ? harga : 0,
+    aktif,
   };
 };
 
-const rupiah = (v: number) =>
-  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(
-    isFinite(v) ? v : 0
-  );
+// Ambil array data dari berbagai shape respons
+const extractArray = (json: any): any[] => {
+  if (!json) return [];
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json?.data)) return json.data;
+  if (Array.isArray(json?.items)) return json.items;
+  if (Array.isArray(json?.rows)) return json.rows;
+  if (Array.isArray(json?.result?.data)) return json.result.data;
+  // kalau json.data adalah object single {..}, jadikan array 1
+  if (json?.data && typeof json.data === "object") return [json.data];
+  return [];
+};
 
+const rupiah = (v: number) =>
+  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })
+    .format(isFinite(v) ? v : 0);
+
+// ------- Page -------
 type SortKey = "nama" | "kategori" | "harga";
 type SortDir = "asc" | "desc";
 
@@ -79,41 +114,34 @@ export default function SetupProdukPage() {
   const [sortKey, setSortKey] = useState<SortKey>("nama");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  // Form state (Tambah/Edit)
+  // writeLocked -> kalau BE balas 404/405 saat SAVE / DELETE
+  const [writeLocked, setWriteLocked] = useState(false);
+
+  // Form
   const emptyForm: Produk = { id: "", nama: "", kategori: "", harga: 0, aktif: true };
   const [form, setForm] = useState<Produk>(emptyForm);
   const [showForm, setShowForm] = useState<"none" | "create" | "edit">("none");
 
   const ownerId = getOwnerId();
-
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     "x-owner-id": ownerId,
   };
 
+  // ------- Fetch List -------
   const fetchList = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/produk`, { headers, cache: "no-store" });
-      if (!res.ok) throw new Error(`GET /produk failed ${res.status}`);
+      const res = await fetch(`${API_BASE}/setup/produk`, { headers, cache: "no-store" });
+      if (!res.ok) throw new Error(`GET /setup/produk failed ${res.status}`);
       const json = await res.json();
-      const rawArr = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+      console.log("[/setup/produk] RAW:", json);
+      const rawArr = extractArray(json);
       const mapped = rawArr.map(normalizeProduk).filter((it: Produk) => it.id);
       setList(mapped);
     } catch (e) {
       console.error(e);
-      // Jika BE masih di /setup/produk, fallback otomatis:
-      try {
-        const res2 = await fetch(`${API_BASE}/setup/produk`, { headers, cache: "no-store" });
-        if (!res2.ok) throw new Error(`GET /setup/produk failed ${res2.status}`);
-        const json2 = await res2.json();
-        const rawArr2 = Array.isArray(json2?.data) ? json2.data : Array.isArray(json2) ? json2 : [];
-        const mapped2 = rawArr2.map(normalizeProduk).filter((it: Produk) => it.id);
-        setList(mapped2);
-      } catch (ee) {
-        console.error(ee);
-        setList([]);
-      }
+      setList([]);
     } finally {
       setLoading(false);
     }
@@ -124,6 +152,7 @@ export default function SetupProdukPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ------- Derived list -------
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     let out = [...list];
@@ -151,87 +180,106 @@ export default function SetupProdukPage() {
     setForm({ ...emptyForm, aktif: true });
     setShowForm("create");
   };
-
   const onEdit = (row: Produk) => {
     setForm({ ...row });
     setShowForm("edit");
   };
 
+  // ------- Delete -------
   const onDelete = async (row: Produk) => {
     if (!confirm(`Hapus produk "${row.nama}"?`)) return;
     try {
-      // Utama: DELETE /produk/:id
-      const res = await fetch(`${API_BASE}/produk/${row.id}`, {
+      // Utama: DELETE /setup/produk/:id
+      let res = await fetch(`${API_BASE}/setup/produk/${row.id}`, {
         method: "DELETE",
         headers,
       });
       if (!res.ok) {
-        // Fallback 1: POST /produk/delete
-        const res2 = await fetch(`${API_BASE}/produk/delete`, {
+        // Fallback: POST /setup/produk/delete { id }
+        try {
+          const txt = await res.text();
+          console.warn(`[DELETE FAIL] DELETE /setup/produk/${row.id} -> ${res.status}`, txt);
+        } catch {}
+        res = await fetch(`${API_BASE}/setup/produk/delete`, {
           method: "POST",
           headers,
           body: JSON.stringify({ id: row.id }),
         });
-        if (!res2.ok) {
-          // Fallback 2: POST /produk {id, _delete:true}
-          const res3 = await fetch(`${API_BASE}/produk`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ id: row.id, _delete: true }),
-          });
-          if (!res3.ok) throw new Error("Delete gagal di semua fallback");
-        }
+      }
+      if (!res.ok) {
+        let detail = "";
+        try { detail = (await res.text())?.slice(0, 500) || ""; } catch {}
+        if (res.status === 404 || res.status === 405) setWriteLocked(true);
+        alert(`Gagal menghapus.\nStatus: ${res.status}\nDetail: ${detail}`);
+        return;
       }
       await fetchList();
       alert("Produk terhapus.");
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      alert("Gagal menghapus produk. Cek console / BE logs.");
+      alert("Gagal menghapus. Cek console / BE logs.");
     }
   };
 
+  // ------- Save (Create / Edit) -------
   const submitForm = async (mode: "create" | "edit") => {
     if (!form.nama.trim()) {
       alert("Nama produk wajib diisi.");
       return;
     }
+
     try {
-      // BE kita sudah seragam: POST (upsert) dan PUT
-      const payload = {
-        id: form.id || undefined, // biarkan undefined saat create
+      // Payload utama sesuai BE (nama, kategori, harga, aktif)
+      const payload: any = {
+        ...(mode === "edit" ? { id: form.id } : {}),
         nama: form.nama,
         kategori: form.kategori,
+        harga: Number(form.harga || 0),
+        // alias aman kalau BE masih baca harga_jual_user:
         harga_jual_user: Number(form.harga || 0),
         aktif: Boolean(form.aktif),
       };
 
-      const method = mode === "edit" ? "PUT" : "POST";
-      const res = await fetch(`${API_BASE}/produk`, {
-        method,
-        headers,
-        body: JSON.stringify(payload),
-      });
+      let res: Response | null = null;
 
-      if (!res.ok) {
-        // Fallback: kalau BE hanya terima POST upsert
-        if (method === "PUT") {
-          const res2 = await fetch(`${API_BASE}/produk`, {
+      if (mode === "edit") {
+        // 1) PUT /setup/produk/:id
+        res = await fetch(`${API_BASE}/setup/produk/${form.id}`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        // 2) Fallback POST upsert /setup/produk
+        if (!res.ok) {
+          try { console.warn(`[PUT FAIL] ${res.status}`, await res.text()); } catch {}
+          res = await fetch(`${API_BASE}/setup/produk`, {
             method: "POST",
             headers,
             body: JSON.stringify(payload),
           });
-          if (!res2.ok) {
-            throw new Error(`Save gagal: ${res.status} & fallback ${res2.status}`);
-          }
-        } else {
-          throw new Error(`Save gagal: ${res.status}`);
         }
+      } else {
+        // CREATE: POST /setup/produk
+        res = await fetch(`${API_BASE}/setup/produk`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (!res.ok) {
+        let detail = "";
+        try { detail = (await res.text())?.slice(0, 600) || ""; } catch {}
+        if (res.status === 404 || res.status === 405) setWriteLocked(true);
+        alert(`Gagal menyimpan.\nStatus: ${res.status}\nDetail:\n${detail}`);
+        return;
       }
 
       setShowForm("none");
       await fetchList();
+      setWriteLocked(false);
       alert("Produk tersimpan.");
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       alert("Gagal menyimpan. Cek console / BE logs.");
     }
@@ -248,21 +296,25 @@ export default function SetupProdukPage() {
         r.aktif ? "1" : "0",
       ]),
     ];
-    const csv = rows.map((r) =>
-      r.map((cell) => {
-        const s = String(cell ?? "");
-        if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      }).join(",")
-    ).join("\n");
+    const csv = rows
+      .map((r) =>
+        r
+          .map((cell) => {
+            const s = String(cell ?? "");
+            if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+              return `"${s.replace(/"/g, '""')}"`;
+            }
+            return s;
+          })
+          .join(",")
+      )
+      .join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `produk-${new Date().toISOString().slice(0,19).replace(/[:T]/g,"")}.csv`;
+    a.download = `produk-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -274,30 +326,49 @@ export default function SetupProdukPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {/* Banner lock tulis (supaya user ngerti kalau BE belum aktif tulis) */}
+      {writeLocked && (
+        <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 px-4 py-2 text-sm">
+          Mode baca saja: endpoint tulis <code>/setup/produk</code> menolak request (404/405).
+          Silakan coba lagi setelah BE mengaktifkan route POST/PUT/DELETE.
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Setup · Produk</h1>
           <p className="text-sm text-gray-500">
-            GET/POST/PUT/DELETE — sinkron BE (22 Okt). Endpoint utama: <code>/produk</code>
+            GET/POST/PUT/DELETE — endpoint utama: <code>/setup/produk</code>
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={exportCsv}
-            className="px-4 py-2 rounded-2xl bg-white border hover:bg-gray-50"
+            onClick={async () => {
+              try {
+                const res = await fetch(`${API_BASE}/setup/produk`, { headers, cache: "no-store" });
+                const j = await res.json();
+                console.log("[RAW] /setup/produk:", j);
+                alert("Raw /setup/produk dicetak di console (F12).");
+              } catch (e) {
+                alert("Gagal fetch raw /setup/produk. Lihat console.");
+                console.error(e);
+              }
+            }}
+            className="px-4 py-2 rounded-2xl bg-white border hover:bg-gray-50 hidden sm:inline-flex"
           >
+            Raw
+          </button>
+          <button onClick={exportCsv} className="px-4 py-2 rounded-2xl bg-white border hover:bg-gray-50">
             Export CSV
           </button>
-          <button
-            onClick={fetchList}
-            className="px-4 py-2 rounded-2xl bg-white border hover:bg-gray-50"
-          >
+          <button onClick={fetchList} className="px-4 py-2 rounded-2xl bg-white border hover:bg-gray-50">
             Refresh
           </button>
           <button
             onClick={onCreate}
-            className="px-4 py-2 rounded-2xl bg-black text-white"
+            disabled={writeLocked}
+            className={`px-4 py-2 rounded-2xl ${writeLocked ? "bg-gray-300 text-gray-500" : "bg-black text-white"}`}
           >
             + Tambah Produk
           </button>
@@ -315,26 +386,24 @@ export default function SetupProdukPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-500">Sort:</label>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="px-3 py-2 rounded-xl border bg-white"
-            >
-              <option value="nama">Nama</option>
-              <option value="kategori">Kategori</option>
-              <option value="harga">Harga</option>
-            </select>
-            <select
-              value={sortDir}
-              onChange={(e) => setSortDir(e.target.value as SortDir)}
-              className="px-3 py-2 rounded-xl border bg-white"
-            >
-              <option value="asc">A → Z</option>
-              <option value="desc">Z → A</option>
-            </select>
-          </div>
+          <label className="text-sm text-gray-500">Sort:</label>
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="px-3 py-2 rounded-xl border bg-white"
+          >
+            <option value="nama">Nama</option>
+            <option value="kategori">Kategori</option>
+            <option value="harga">Harga</option>
+          </select>
+          <select
+            value={sortDir}
+            onChange={(e) => setSortDir(e.target.value as SortDir)}
+            className="px-3 py-2 rounded-xl border bg-white"
+          >
+            <option value="asc">A → Z</option>
+            <option value="desc">Z → A</option>
+          </select>
         </div>
       </div>
 
@@ -356,15 +425,11 @@ export default function SetupProdukPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-6 text-center text-gray-500" colSpan={5}>
-                  Memuat...
-                </td>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={5}>Memuat...</td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-center text-gray-500" colSpan={5}>
-                  Tidak ada data.
-                </td>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={5}>Tidak ada data.</td>
               </tr>
             ) : (
               filtered.map((row) => (
@@ -373,13 +438,9 @@ export default function SetupProdukPage() {
                   <td className="px-4 py-3 border-t">{row.kategori || "-"}</td>
                   <td className="px-4 py-3 border-t">{row.harga ? rupiah(row.harga) : "-"}</td>
                   <td className="px-4 py-3 border-t">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${
-                        row.aktif
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${
+                      row.aktif ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-600"
+                    }`}>
                       {row.aktif ? "Aktif" : "Nonaktif"}
                     </span>
                   </td>
@@ -387,7 +448,10 @@ export default function SetupProdukPage() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => onEdit(row)}
-                        className="px-3 py-1.5 rounded-xl border bg-white hover:bg-gray-50"
+                        disabled={writeLocked}
+                        className={`px-3 py-1.5 rounded-xl border ${
+                          writeLocked ? "bg-gray-100 text-gray-400" : "bg-white hover:bg-gray-50"
+                        }`}
                       >
                         Edit
                       </button>
@@ -406,7 +470,7 @@ export default function SetupProdukPage() {
         </table>
       </div>
 
-      {/* Drawer / Modal sederhana */}
+      {/* Modal */}
       {showForm !== "none" && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
           <div className="w-full sm:max-w-lg bg-white rounded-2xl p-5 shadow-lg">
@@ -414,9 +478,7 @@ export default function SetupProdukPage() {
               <h3 className="text-lg font-semibold">
                 {showForm === "create" ? "Tambah Produk" : "Edit Produk"}
               </h3>
-              <button onClick={resetForm} className="text-gray-500 hover:text-black">
-                ✕
-              </button>
+              <button onClick={resetForm} className="text-gray-500 hover:text-black">✕</button>
             </div>
 
             <div className="grid gap-3">
@@ -441,7 +503,7 @@ export default function SetupProdukPage() {
               </div>
 
               <div className="grid gap-1">
-                <label className="text-sm text-gray-600">Harga Jual</label>
+                <label className="text-sm text-gray-600">Harga</label>
                 <input
                   type="number"
                   value={form.harga}
@@ -463,16 +525,10 @@ export default function SetupProdukPage() {
             </div>
 
             <div className="flex items-center justify-end gap-2 mt-5">
-              <button
-                onClick={resetForm}
-                className="px-4 py-2 rounded-2xl border bg-white hover:bg-gray-50"
-              >
+              <button onClick={resetForm} className="px-4 py-2 rounded-2xl border bg-white hover:bg-gray-50">
                 Batal
               </button>
-              <button
-                onClick={() => submitForm(showForm)}
-                className="px-4 py-2 rounded-2xl bg-black text-white"
-              >
+              <button onClick={() => submitForm(showForm)} className="px-4 py-2 rounded-2xl bg-black text-white">
                 Simpan
               </button>
             </div>

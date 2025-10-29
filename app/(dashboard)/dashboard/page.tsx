@@ -1,5 +1,6 @@
 'use client';
 
+import { InventoryWidget } from './_components/InventoryWidget';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/app/lib/api';
 import ExportCsvButton from '@/app/components/ExportCsvButton';
@@ -172,6 +173,9 @@ export default function DashboardPage(){
       </div>
 
       {/* Slot chart jika dibutuhkan ke depan */}
+<div className="lg:col-span-2">
+  <InventoryWidget />
+</div>
       {/* 
       <div className="rounded-2xl border p-4">
         <div className="mb-2 font-semibold">Margin per Produk</div>

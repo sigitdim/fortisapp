@@ -13,7 +13,8 @@ type DetailRow = {
 };
 
 export default function ResepDetailPage() {
-  const { id: resepId } = useParams<{ id: string }>();
+  const p = useParams<{ id: string }>()! as { id: string } | null;
+  const resepId = p?.id ?? "";
   const [resep, setResep] = useState<Resep | null>(null);
   const [bahanList, setBahanList] = useState<Bahan[]>([]);
   const [rows, setRows] = useState<DetailRow[]>([]);

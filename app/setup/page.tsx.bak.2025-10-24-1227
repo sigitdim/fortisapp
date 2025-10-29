@@ -1,0 +1,620 @@
+"use client";
+import { ohBiaya } from "../../lib/oh";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+
+/* ================== CONFIG & API ================== */
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id").replace(/\/$/, "");
+const OWNER_ID  =  process.env.NEXT_PUBLIC_OWNER_ID || "f6269e9a-bc6d-4f8b-aa45-08affc769e5a";
+
+/* ===== Overhead helpers: baca biaya_bulanan (fallback biaya lama) ===== */
+function __toNum(v: any): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (v == null) return 0;
+  const s = String(v).replace(/[^\d.,-]/g, "");
+  const n = parseFloat(s.replace(/\./g, "").replace(/,/g, "."));
+  return Number.isFinite(n) ? n : 0;
+}
+function __ohBiaya(row: any): number {
+  // KUNCI: utamakan biaya_bulanan dari BE
+  return __toNum(
+    row?.biaya_bulanan ??
+    row?.biaya ??
+    row?.biaya_per_periode ??
+    row?.nilai ??
+    row?.amount ??
+    0
+  );
+}
+function __rp(n: number) {
+  return n.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+}
+function __toNum(v: any): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (v == null) return 0;
+  const s = String(v).replace(/[^\d.,-]/g, "");
+  const n = parseFloat(s.replace(/\./g, "").replace(/,/g, "."));
+  return Number.isFinite(n) ? n : 0;
+}
+function __rp(n: number) {
+  return n.toLocaleString("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  });
+}
+
+/** fetch wrapper — kalau path diawali /api/ JANGAN diprefix ke API_BASE */
+async function apiFetch(path: string, init?: RequestInit) {
+  const isAbs  = /^https?:\/\//i.test(path);
+  const isFe   = path.startsWith("/api/");
+  const url    = isAbs ? path : (isFe ? path : `${API_BASE}${path}`);
+  const res = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", "x-owner-id": OWNER_ID, ...(init?.headers||{}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(()=>res.statusText);
+    throw new Error(t || `${res.status} ${res.statusText}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const txt = await res.text();
+    try { return JSON.parse(txt); } catch { return { raw: txt }; }
+  }
+  return res.json();
+}
+
+/* ================== SAFE HELPERS ================== */
+// Bahan
+async function safeCreateBahan(payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/bahan`,{method:"POST",body}); }catch{}
+  return apiFetch(`/setup/bahan`,{method:"POST",body});
+}
+async function safeUpdateBahan(id:string,payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/bahan/${id}`,{method:"PUT",body}); }catch{}
+  try{ return await apiFetch(`/api/setup/bahan`,{method:"POST",body}); }catch{}
+  try{ return await apiFetch(`/setup/bahan/${id}`,{method:"PUT",body}); }catch{}
+  try{ return await apiFetch(`/setup/bahan/${id}`,{method:"PATCH",body}); }catch{}
+  return apiFetch(`/setup/bahan`,{method:"POST",body});
+}
+async function safeDeleteBahan(id:string){
+  try{ return await apiFetch(`/api/setup/bahan/${id}`,{method:"DELETE"});}catch{}
+  try{ return await apiFetch(`/setup/bahan/${id}`,{method:"DELETE"});}catch{}
+  return apiFetch(`/setup/bahan/delete`,{method:"POST",body:JSON.stringify({id})});
+}
+/** opsional: coba tulis log harga (diabaikan jika endpoint tidak ada) */
+async function safeCreateBahanLog(id:string,harga:number){
+  const body = JSON.stringify({ id, harga, harga_per_satuan:harga, owner_id:OWNER_ID });
+  const paths = [
+    `/api/bahan/${id}/history`,            // sebagian BE terima POST di history
+    `/api/bahan/${id}/logs`,
+    `/api/setup/bahan/${id}/history`,
+    `/api/setup/bahan/${id}/logs`,
+    `${API_BASE}/bahan/${id}/history`,
+    `${API_BASE}/bahan/${id}/logs`,
+    `${API_BASE}/bahan/${id}/price-logs`,
+    `${API_BASE}/setup/bahan/${id}/history`,
+  ];
+  for (const p of paths) { try { await apiFetch(p,{method:"POST",body}); return; } catch { /* next */ } }
+}
+
+// Overhead
+async function safeCreateOverhead(payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/overhead`,{method:"POST",body}); }catch{}
+  return apiFetch(`/setup/overhead`,{method:"POST",body});
+}
+async function safeUpdateOverhead(id:string,payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/overhead/${id}`,{method:"PUT",body}); }catch{}
+  try{ return await apiFetch(`/setup/overhead/${id}`,{method:"PUT",body}); }catch{}
+  return apiFetch(`/setup/overhead`,{method:"POST",body});
+}
+async function safeDeleteOverhead(id:string){
+  try{ return await apiFetch(`/api/setup/overhead/${id}`,{method:"DELETE"});}catch{}
+  try{ return await apiFetch(`/setup/overhead/${id}`,{method:"DELETE"});}catch{}
+  return apiFetch(`/setup/overhead/delete`,{method:"POST",body:JSON.stringify({id})});
+}
+
+// Tenaga Kerja
+async function safeCreateTenaga(payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/tenaga_kerja`,{method:"POST",body}); }catch{}
+  return apiFetch(`/setup/tenaga_kerja`,{method:"POST",body});
+}
+async function safeUpdateTenaga(id:string,payload:any){
+  const body=JSON.stringify(payload);
+  try{ return await apiFetch(`/api/setup/tenaga_kerja/${id}`,{method:"PUT",body}); }catch{}
+  try{ return await apiFetch(`/setup/tenaga_kerja/${id}`,{method:"PUT",body}); }catch{}
+  return apiFetch(`/setup/tenaga_kerja`,{method:"POST",body});
+}
+async function safeDeleteTenaga(id:string){
+  try{ return await apiFetch(`/api/setup/tenaga_kerja/${id}`,{method:"DELETE"});}catch{}
+  try{ return await apiFetch(`/setup/tenaga_kerja/${id}`,{method:"DELETE"});}catch{}
+  return apiFetch(`/setup/tenaga_kerja/delete`,{method:"POST",body:JSON.stringify({id})});
+}
+
+/* ================== TYPES & UTIL ================== */
+type Raw = Record<string,any>;
+type Bahan = { id:string; nama:string; satuan:string; harga_per_satuan:number };
+type Overhead = { id:string; nama:string; biaya:number };
+type TenagaKerja = { id:string; nama:string; biaya:number };
+
+function safeUUID(){ try{ /* @ts-ignore */ if(crypto.randomUUID) return crypto.randomUUID(); }catch{} return "id-"+Math.random().toString(36).slice(2)+Date.now().toString(36); }
+function toNumber(v:any){ if(typeof v==="number") return v; const s=String(v??"").replace(/[^\d.-]/g,""); const n=Number(s); return Number.isFinite(n)?n:0; }
+function rupiah(n:number){ try{ return new Intl.NumberFormat("id-ID").format(n); }catch{ return String(n); } }
+
+function mapBahan(r:Raw):Bahan{ return {
+  id:r.id||r.bahan_id||r.uuid||r._id||safeUUID(),
+  nama:r.nama_bahan??r.nama??r.name??r.title??"-",
+  satuan:r.satuan??r.unit??r.uom??"",
+  harga_per_satuan: toNumber(r.harga_per_satuan??r.harga??r.price_per_unit??r.harga_satuan??0),
+};}
+function mapOverhead(r:Raw):Overhead{ return {
+  id:r.id||r.overhead_id||r.uuid||r._id||safeUUID(),
+  nama:r.nama_overhead??r.nama??r.name??"-",
+  biaya: toNumber(r.biaya??r.biaya_per_periode??r.nilai??r.amount??0),
+};}
+function mapTenagaKerja(r:Raw):TenagaKerja{ return {
+  id:r.id||r.tenaga_kerja_id||r.uuid||r._id||safeUUID(),
+  nama:r.nama_tenaga??r.nama_karyawan??r.nama??r.name??"-",
+  biaya: toNumber(r.gaji_per_periode??r.gaji??r.biaya??r.amount??0),
+};}
+
+function useList<T>(endpoint:string, mapper:(r:any)=>T){
+  const [data,setData]=useState<T[]>([]);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState<string|null>(null);
+  const refresh = async ()=>{
+    setLoading(true); setErr(null);
+    try{
+      const json = await apiFetch(endpoint);
+      const rows:any[] = Array.isArray(json) ? json : (json?.data ?? []);
+      setData(rows.map(mapper));
+    }catch(e:any){ setErr(e?.message||"Gagal memuat data"); }
+    finally{ setLoading(false); }
+  };
+  useEffect(()=>{ refresh(); /* eslint-disable-next-line */ },[endpoint]);
+  return { data,setData,loading,err,refresh };
+}
+
+/* ================== LOGS ================== */
+type LogItem = { ts:string; harga:number };
+function normalizeLogs(arr:any[]):LogItem[]{
+  const out = (arr||[]).map((r:any)=>{
+    const rawTs = r.created_at??r.ts??r.time??r.timestamp??r.tanggal??r.date??null;
+    const ts = typeof rawTs==="number" && String(rawTs).length>=10
+      ? new Date(rawTs*(String(rawTs).length===10?1000:1)).toISOString()
+      : (rawTs?new Date(rawTs).toISOString():"");
+    return { ts, harga: toNumber(r.harga??r.harga_per_satuan??r.value??r.price??r.nominal??0) };
+  });
+  out.sort((a,b)=> new Date(a.ts).getTime()-new Date(b.ts).getTime());
+  return out.filter(x=>x.ts && Number.isFinite(x.harga));
+}
+
+async function fetchBahanLogs(bahanId: string): Promise<LogItem[]> {
+  const id = encodeURIComponent(bahanId);
+
+  // PRIORITAS: FE proxy yang kamu kasih (dummy ready)
+  const first = [
+    `/api/logs/bahan/${id}`,
+    `/api/bahan_logs/${id}`,                 // alias kalau dipakai
+  ];
+
+  // Fallback kalau proxy/dummy nggak ada
+  const fallback = [
+    `/api/bahan/${id}/history`,
+    `/api/setup/bahan/${id}/history`,
+    `${API_BASE}/bahan/${id}/history`,
+    `${API_BASE}/setup/bahan/${id}/history`,
+    `${API_BASE}/bahan/${id}/price-logs`,
+    `${API_BASE}/bahan/${id}/logs`,
+  ];
+
+  for (const p of [...first, ...fallback]) {
+    try {
+      const json: any = await apiFetch(p);
+      const arr =
+        (Array.isArray(json) ? json : null) ??
+        json?.data ?? json?.history ?? json?.logs ?? [];
+      const norm = normalizeLogs(arr);
+      if (norm.length) return norm;
+    } catch {}
+  }
+  return [];
+}
+
+/* ================== PAGE ================== */
+type TabKey = "bahan"|"overhead"|"tenaga"|"bom";
+
+export default function SetupPage(){
+  const [tab,setTab] = useState<TabKey>(()=> {
+    if(typeof window==="undefined") return "bahan";
+    const u = new URL(window.location.href); const t = (u.searchParams.get("tab")||"bahan") as TabKey;
+    return (["bahan","overhead","tenaga","bom"] as TabKey[]).includes(t) ? t : "bahan";
+  });
+  useEffect(()=>{ if(typeof window==="undefined") return; const u=new URL(window.location.href); u.searchParams.set("tab",tab); window.history.replaceState(null,"",u.toString()); },[tab]);
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 py-8">
+      <h1 className="text-4xl font-bold mb-2">Setup Awal</h1>
+      <p className="text-slate-500 mb-6">Bahan, Overhead, Tenaga Kerja &amp; BOM/COGS.</p>
+
+      <div className="flex gap-3 mb-6">
+        <TabButton active={tab==="bahan"}    onClick={()=>setTab("bahan")}>Bahan</TabButton>
+        <TabButton active={tab==="overhead"} onClick={()=>setTab("overhead")}>Overhead</TabButton>
+        <TabButton active={tab==="tenaga"}   onClick={()=>setTab("tenaga")}>Tenaga Kerja</TabButton>
+        <TabButton active={tab==="bom"}      onClick={()=>setTab("bom")}>BOM &amp; COGS</TabButton>
+      </div>
+
+      {tab==="bahan"    && <BahanSection/>}
+      {tab==="overhead" && <OverheadSection/>}
+      {tab==="tenaga"   && <TenagaSection/>}
+      {tab==="bom"      && <BomCogsSection/>}
+    </div>
+  );
+}
+
+function TabButton({active,children,onClick}:{active?:boolean;children:React.ReactNode;onClick?:()=>void}){
+  return (
+    <button onClick={onClick}
+      className={`px-6 py-3 rounded-full border transition ${active?"bg-black text-white border-black":"bg-white text-black border-slate-300 hover:bg-slate-50"}`}>
+      {children}
+    </button>
+  );
+}
+
+/* ================== BAHAN ================== */
+function BahanSection(){
+  const { data,setData,loading,err,refresh } = useList<Bahan>("/setup/bahan", mapBahan);
+  const [nama,setNama]=useState(""); const [satuan,setSatuan]=useState(""); const [harga,setHarga]=useState("");
+  const [logsOpen,setLogsOpen]=useState(false); const [selected,setSelected]=useState<Bahan|null>(null);
+
+  const handleAdd = async ()=>{
+    try{
+      const payload:any = { nama_bahan:nama||undefined, nama:nama||undefined, satuan:satuan||undefined, harga_per_satuan:toNumber(harga), harga:toNumber(harga) };
+      await safeCreateBahan(payload); setNama(""); setSatuan(""); setHarga(""); await refresh();
+    }catch(e:any){ alert("Gagal tambah bahan: "+(e?.message||e)); }
+  };
+  const handleDelete = async (id:string)=>{
+    try{ await safeDeleteBahan(id); setData(prev=>prev.filter(x=>x.id!==id)); }
+    catch(e:any){ alert("Gagal hapus bahan: "+(e?.message||e)); }
+  };
+  const onSaveRow = async (row:Bahan)=>{
+    const payload:any = { id:row.id, nama_bahan:row.nama, nama:row.nama, satuan:row.satuan, harga_per_satuan:row.harga_per_satuan, harga:row.harga_per_satuan };
+    await safeUpdateBahan(row.id,payload); await refresh();
+  };
+
+  const exportRows = useMemo(()=>data.map(d=>({id:d.id,nama:d.nama,satuan:d.satuan,harga_per_satuan:d.harga_per_satuan})),[data]);
+
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-4">
+        <input className="border rounded px-4 py-3 w-80" placeholder="Nama" value={nama} onChange={e=>setNama(e.target.value)}/>
+        <input className="border rounded px-4 py-3 w-80" placeholder="Satuan (gram/ml/pcs)" value={satuan} onChange={e=>setSatuan(e.target.value)}/>
+        <input className="border rounded px-4 py-3 w-80" placeholder="Harga per satuan" value={harga} inputMode="numeric" onChange={e=>setHarga(e.target.value)}/>
+        <button onClick={handleAdd} className="px-5 py-3 rounded bg-black text-white">Tambah (POST)</button>
+        <div className="ml-auto flex gap-3">
+          <button onClick={()=>exportCSV("bahan.csv",exportRows)} className="px-4 py-3 rounded border">Export CSV</button>
+          <button onClick={refresh} className="px-4 py-3 rounded border">Refresh</button>
+        </div>
+      </div>
+
+      <DataError loading={loading} err={err} />
+
+      <table className="w-full border rounded overflow-hidden">
+        <thead className="bg-slate-100">
+          <tr className="text-left">
+            <th className="p-3 w-[40%]">Nama</th>
+            <th className="p-3 w-[20%]">Satuan</th>
+            <th className="p-3 w-[20%]">Harga/Satuan</th>
+            <th className="p-3 w-[20%]">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map(row=>(
+            <EditableRowBahan key={row.id} row={row}
+              onDelete={()=>handleDelete(row.id)}
+              onSave={onSaveRow}
+              onLogs={()=>{ setSelected(row); setLogsOpen(true); }}/>
+          ))}
+        </tbody>
+      </table>
+
+      <LogsModal open={logsOpen} onClose={()=>setLogsOpen(false)} bahan={selected} onAfterSave={async()=>{ await refresh(); }}/>
+    </section>
+  );
+}
+
+function EditableRowBahan({row,onDelete,onSave,onLogs}:{row:Bahan;onDelete:()=>void;onSave:(r:Bahan)=>Promise<void>;onLogs:()=>void;}){
+  const [editing,setEditing]=useState(false);
+  const [draft,setDraft]=useState(row); useEffect(()=>setDraft(row),[row]);
+  return (
+    <tr className="border-t">
+      <td className="p-3">{editing? <input className="border rounded px-2 py-1 w-full" value={draft.nama} onChange={e=>setDraft({...draft,nama:e.target.value})}/> : (draft.nama||"-")}</td>
+      <td className="p-3">{editing? <input className="border rounded px-2 py-1 w-full" value={draft.satuan} onChange={e=>setDraft({...draft,satuan:e.target.value})}/> : (draft.satuan||"")}</td>
+      <td className="p-3">{editing? <input className="border rounded px-2 py-1 w-full" value={draft.harga_per_satuan} inputMode="numeric" onChange={e=>setDraft({...draft,harga_per_satuan:toNumber(e.target.value)})}/> : rupiah(draft.harga_per_satuan)}</td>
+      <td className="p-3">
+        {editing? (
+          <div className="flex gap-2">
+            <button onClick={async()=>{ try{await onSave(draft); setEditing(false);}catch(e:any){alert("Gagal menyimpan bahan: "+(e?.message||e));} }} className="px-3 py-1 rounded bg-black text-white">Save</button>
+            <button onClick={()=>{ setDraft(row); setEditing(false); }} className="px-3 py-1 rounded border">Cancel</button>
+          </div>
+        ):(
+          <div className="flex gap-2">
+            <button onClick={()=>setEditing(true)} className="px-3 py-1 rounded border">Edit</button>
+            <button onClick={onDelete} className="px-3 py-1 rounded border border-red-400 text-red-600">Delete</button>
+            <button onClick={onLogs} className="px-3 py-1 rounded border">Logs</button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ================== OVERHEAD ================== */
+function OverheadSection(){
+  const { data,setData,loading,err,refresh } = useList<Overhead>("/setup/overhead", mapOverhead);
+  const [nama,setNama]=useState(""); const [biaya,setBiaya]=useState("");
+
+  const handleAdd = async ()=>{
+    try{
+      const payload:any = { nama_overhead:nama, nama, biaya:toNumber(biaya), biaya_per_periode:toNumber(biaya), nilai:toNumber(biaya) };
+      await safeCreateOverhead(payload); setNama(""); setBiaya(""); await refresh();
+    }catch(e:any){ alert("Gagal tambah overhead: "+(e?.message||e)); }
+  };
+  const handleDelete = async (id:string)=>{
+    try{ await safeDeleteOverhead(id); setData(prev=>prev.filter(x=>x.id!==id)); }
+    catch(e:any){ alert("Gagal hapus overhead: "+(e?.message||e)); }
+  };
+  const onSaveRow = async (row:Overhead)=>{
+    const payload:any = { id:row.id, nama_overhead:row.nama, nama:row.nama, biaya:ohBiaya(row), biaya_per_periode:ohBiaya(row), nilai:ohBiaya(row) };
+    await safeUpdateOverhead(row.id,payload); await refresh();
+  };
+
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-4">
+        <input className="border rounded px-4 py-3 w-96" placeholder="Nama Overhead" value={nama} onChange={e=>setNama(e.target.value)}/>
+        <input className="border rounded px-4 py-3 w-96" placeholder="Biaya per periode" value={biaya} inputMode="numeric" onChange={e=>setBiaya(e.target.value)}/>
+        <button className="px-5 py-3 rounded bg-black text-white" onClick={handleAdd}>Tambah (POST)</button>
+        <div className="ml-auto"><button onClick={refresh} className="px-4 py-3 rounded border">Refresh</button></div>
+      </div>
+
+      <DataError loading={loading} err={err}/>
+      <table className="w-full border rounded overflow-hidden">
+        <thead className="bg-slate-100">
+        <tr>
+           <th className="p-3 w-[60%] text-left">Nama</th>
+           <th className="p-3 w-[20%] text-right">Biaya</th>
+           <th className="p-3 w-[20%] text-left">Aksi</th>
+        </tr>
+      </thead>
+        <tbody>
+          {data.map(row=>(
+            <EditableRowOverhead key={row.id} row={row} onDelete={()=>handleDelete(row.id)} onSave={onSaveRow}/>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+function EditableRowOverhead({
+  row,
+  onDelete,
+  onSave,
+}: {
+  row: any;
+  onDelete: (id: string) => void;
+  onSave: (id: string, payload: any) => void;
+}) {
+  const nama = (row as any).nama_overhead ?? row.nama ?? "-";
+
+  // PAKAI util dari lib/oh
+  const biaya = ohBiaya(row);
+
+  // formatter lokal biar gak tabrakan nama
+  const rpLocal = (n: number) =>
+    n.toLocaleString("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      maximumFractionDigits: 0,
+    });
+
+  return (
+    <tr className="border-t">
+      <td className="px-3 py-2 text-left">{nama}</td>
+      <td className="px-3 py-2 text-right">{rpLocal(biaya)}</td>
+      <td className="px-3 py-2 whitespace-nowrap">
+        <button className="mr-2 underline" onClick={() => onSave(row.id, row)}>
+          Edit
+        </button>
+        <button className="text-red-600 underline" onClick={() => onDelete(row.id)}>
+          Delete
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/* ================== TENAGA ================== */
+function TenagaSection(){
+  const { data,setData,loading,err,refresh } = useList<TenagaKerja>("/setup/tenaga_kerja", mapTenagaKerja);
+  const [nama,setNama]=useState(""); const [biaya,setBiaya]=useState("");
+
+  const handleAdd = async ()=>{
+    try{
+      const payload:any = { nama_tenaga:nama, nama_karyawan:nama, nama:nama, gaji_per_periode:toNumber(biaya), gaji:toNumber(biaya), biaya:toNumber(biaya) };
+      await safeCreateTenaga(payload); setNama(""); setBiaya(""); await refresh();
+    }catch(e:any){ alert("Gagal tambah tenaga kerja: "+(e?.message||e)); }
+  };
+  const handleDelete = async (id:string)=>{
+    try{ await safeDeleteTenaga(id); setData(prev=>prev.filter(x=>x.id!==id)); }
+    catch(e:any){ alert("Gagal hapus tenaga kerja: "+(e?.message||e)); }
+  };
+  const onSaveRow = async (row:TenagaKerja)=>{
+    const payload:any = { id:row.id, nama_tenaga:row.nama, nama_karyawan:row.nama, nama:row.nama, gaji_per_periode:ohBiaya(row), gaji:ohBiaya(row), biaya:ohBiaya(row) };
+    await safeUpdateTenaga(row.id,payload); await refresh();
+  };
+
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-4">
+        <input className="border rounded px-4 py-3 w-96" placeholder="Nama Tenaga Kerja" value={nama} onChange={e=>setNama(e.target.value)}/>
+        <input className="border rounded px-4 py-3 w-96" placeholder="Gaji/Biaya per periode" value={biaya} inputMode="numeric" onChange={e=>setBiaya(e.target.value)}/>
+        <button className="px-5 py-3 rounded bg-black text-white" onClick={handleAdd}>Tambah (POST)</button>
+        <div className="ml-auto"><button onClick={refresh} className="px-4 py-3 rounded border">Refresh</button></div>
+      </div>
+
+      <DataError loading={loading} err={err}/>
+      <table className="w-full border rounded overflow-hidden">
+        <thead className="bg-slate-100">
+          <tr className="text-left"><th className="p-3 w-[60%]">Nama</th><th className="p-3 w-[20%]">Biaya/Gaji</th><th className="p-3 w-[20%]">Aksi</th></tr>
+        </thead>
+        <tbody>
+          {data.map(row=>(
+            <EditableRowTenaga key={row.id} row={row} onDelete={()=>handleDelete(row.id)} onSave={onSaveRow}/>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+function EditableRowTenaga({row,onDelete,onSave}:{row:TenagaKerja;onDelete:()=>void;onSave:(r:TenagaKerja)=>Promise<void>;}){
+  const [editing,setEditing]=useState(false);
+  const [draft,setDraft]=useState(row); useEffect(()=>setDraft(row),[row]);
+  return (
+    <tr className="border-t">
+      <td className="p-3">{editing? <input className="border rounded px-2 py-1 w-full" value={draft.nama} onChange={e=>setDraft({...draft,nama:e.target.value})}/> : (draft.nama||"-")}</td>
+      <td className="p-3">{editing? <input className="border rounded px-2 py-1 w-full" value={draft.biaya} inputMode="numeric" onChange={e=>setDraft({...draft,biaya:toNumber(e.target.value)})}/> : rupiah(draft.biaya)}</td>
+      <td className="p-3">
+        {editing?(
+          <div className="flex gap-2">
+            <button onClick={async()=>{ try{await onSave(draft); setEditing(false);}catch(e:any){alert("Gagal menyimpan tenaga kerja: "+(e?.message||e));} }} className="px-3 py-1 rounded bg-black text-white">Save</button>
+            <button onClick={()=>{ setDraft(row); setEditing(false); }} className="px-3 py-1 rounded border">Cancel</button>
+          </div>
+        ):(
+          <div className="flex gap-2">
+            <button onClick={()=>setEditing(true)} className="px-3 py-1 rounded border">Edit</button>
+            <button onClick={onDelete} className="px-3 py-1 rounded border border-red-400 text-red-600">Delete</button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ================== LOGS MODAL ================== */
+function LogsModal({open,onClose,bahan,onAfterSave}:{open:boolean;onClose:()=>void;bahan:Bahan|null;onAfterSave:()=>Promise<void>;}){
+  const [rows,setRows]=useState<LogItem[]>([]);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState<string|null>(null);
+  const [hargaBaru,setHargaBaru]=useState<string>("");
+
+  useEffect(()=>{
+    if(!open||!bahan) return;
+    setLoading(true); setErr(null);
+    setHargaBaru(bahan.harga_per_satuan?String(bahan.harga_per_satuan):"");
+    fetchBahanLogs(bahan.id)
+      .then((r)=>{ setRows(r); if(!r||r.length===0) setErr("Belum ada data log untuk bahan ini atau endpoint logs belum tersedia."); })
+      .catch(()=>setErr("Gagal memuat logs (endpoint belum tersedia)."))
+      .finally(()=>setLoading(false));
+  },[open,bahan]);
+
+  const handleQuickSave = async ()=>{
+    if(!bahan) return;
+    const val = toNumber(hargaBaru);
+    const payload:any = { id:bahan.id, nama_bahan:bahan.nama, nama:bahan.nama, satuan:bahan.satuan, harga_per_satuan:val, harga:val };
+    try{
+      await safeUpdateBahan(bahan.id,payload);
+      safeCreateBahanLog(bahan.id,val).catch(()=>{});
+      await onAfterSave();
+      setLoading(true);
+      fetchBahanLogs(bahan.id).then(setRows).catch(()=>{}).finally(()=>setLoading(false));
+    }catch(e:any){
+      alert("Gagal menyimpan harga: "+(e?.message||e));
+    }
+  };
+
+  if(!open||!bahan) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center">
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow p-5">
+        <div className="flex items-start justify-between mb-2">
+          <div>
+            <h3 className="text-2xl font-bold">Logs Bahan</h3>
+            <div className="text-slate-600">{bahan.nama}</div>
+          </div>
+          <button onClick={onClose} className="px-3 py-1 rounded border">Close</button>
+        </div>
+
+        <div className="border rounded-2xl p-4 mb-4">
+          <div className="text-lg font-semibold mb-2">Grafik Harga dari Logs</div>
+          {loading && <div className="text-slate-500">Memuat…</div>}
+          {err && <div className="text-red-600 text-sm">{err}</div>}
+          {!loading && !err && rows.length===0 && <div className="text-slate-500">Belum ada data log.</div>}
+          {rows.length>0 && (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows}>
+                  <CartesianGrid strokeDasharray="3 3"/>
+                  <XAxis dataKey="ts" tickFormatter={(v)=>new Date(v).toLocaleDateString("id-ID",{day:"2-digit",month:"short"})}/>
+                  <YAxis/>
+                  <Tooltip formatter={(val:any)=>rupiah(Number(val))} labelFormatter={(l)=>new Date(l as string).toLocaleString("id-ID")}/>
+                  <Line type="monotone" dataKey="harga"/>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-2xl p-4">
+          <div className="text-lg font-semibold mb-2">Update Harga Cepat</div>
+          <div className="flex items-center gap-3">
+            <input className="border rounded px-4 py-3 w-60" inputMode="numeric" value={hargaBaru} onChange={e=>setHargaBaru(e.target.value)}/>
+            <button onClick={handleQuickSave} className="px-5 py-3 rounded bg-black text-white">Simpan</button>
+          </div>
+          <div className="text-slate-500 text-sm mt-2">Harga diperbarui via FE proxy → PUT <code>/api/setup/bahan/:id</code> (fallback BE).</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================== BOM/COGS placeholder ================== */
+function BomCogsSection(){
+  return (
+    <section className="border rounded p-5">
+      <h3 className="text-xl font-semibold mb-2">BOM &amp; COGS</h3>
+      <p className="text-slate-500">Hubungkan ke kalkulator HPP ketika ready.</p>
+    </section>
+  );
+}
+
+/* ================== MISC ================== */
+function exportCSV(filename:string, rows:any[]){
+  if(!rows?.length) return;
+  const headers = Object.keys(rows[0]);
+  const lines = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => {
+      const cell = r[h] ?? "";
+      const value = typeof cell === "string" ? cell.replace(/"/g,'""') : String(cell);
+      return /[",\n]/.test(value) ? `"${value}"` : value;
+    }).join(",")),
+  ].join("\n");
+  const blob = new Blob([lines],{type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob); const a = document.createElement("a");
+  a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+}
+function DataError({loading,err}:{loading:boolean;err:string|null}){
+  if(loading) return <div className="mb-3 text-slate-500">Memuat data…</div>;
+  if(err)     return <div className="mb-3 text-red-600">Gagal memuat data: <span className="font-mono">{err}</span></div>;
+  return null;
+}

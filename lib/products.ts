@@ -130,7 +130,7 @@ export async function upsertProduk(
       row.harga_jual_user ??
       (typeof body.harga_jual_user === "number" ? body.harga_jual_user : null),
   };
-  return { ok: !!json?.ok ?? true, data };
+  return { ok: Boolean(json?.ok ?? true), data };
 }
 
 /** Untuk dropdown */

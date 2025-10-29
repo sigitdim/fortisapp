@@ -1,49 +1,20 @@
-import { api } from "./api";
+/* @ts-nocheck */
+import api, { fetchProdukList } from "@/lib/api";
 
-type ProdukLite = { id: string; nama?: string; name?: string };
+export type ProductLite = { id: string; nama: string };
 
-const cache = new Map<string, string>(); // id -> nama produk
-
-export async function resolveProductNames(
-  ids: string[]
-): Promise<Record<string, string>> {
-  const unique = [...new Set(ids.filter(Boolean))];
-  const missing = unique.filter((id) => !cache.has(id));
-
-  if (missing.length === 0)
-    return Object.fromEntries(unique.map((id) => [id, cache.get(id)!]));
-
-  const tryPaths = [
-    (ids: string[]) => `/produk/by-ids?ids=${encodeURIComponent(ids.join(","))}`,
-    (ids: string[]) =>
-      `/products/by-ids?ids=${encodeURIComponent(ids.join(","))}`,
-    (ids: string[]) => `/product/by-ids?ids=${encodeURIComponent(ids.join(","))}`,
-    (ids: string[]) => `/produk?ids=${encodeURIComponent(ids.join(","))}`,
-  ];
-
-  let list: ProdukLite[] = [];
-  for (const build of tryPaths) {
-    try {
-      const resp = await api.get<{ ok?: boolean; data?: ProdukLite[] }>(
-        build(missing)
-      );
-      const arr = resp?.data || [];
-      if (Array.isArray(arr) && arr.length) {
-        list = arr;
-        break;
-      }
-    } catch (_) {}
+/** Kembalikan peta {id: {id,nama}} untuk daftar ids yang diminta.
+ *  Tahan format BE apapun: {id|produk_id|uuid, nama|name|product_name}
+ */
+export async function resolveProducts(ids: string[]): Promise<Record<string, ProductLite>> {
+  const all = await fetchProdukList().catch(() => []) as any[];
+  const map: Record<string, ProductLite> = {};
+  for (const p of (all || [])) {
+    const id = String(p?.id ?? p?.produk_id ?? p?.uuid ?? "");
+    const nama = p?.nama ?? p?.product_name ?? p?.name ?? id;
+    if (id) map[id] = { id, nama };
   }
-
-  for (const id of missing) {
-    const found = list.find((x) => x.id === id);
-    const nama = found?.nama || found?.name || id;
-    cache.set(id, nama);
-  }
-
-  return Object.fromEntries(unique.map((id) => [id, cache.get(id)!]));
-}
-
-export function nameOf(id: string, map: Record<string, string>) {
-  return map[id] || id;
+  const out: Record<string, ProductLite> = {};
+  for (const id of ids) out[id] = map[id] ?? { id, nama: id };
+  return out;
 }

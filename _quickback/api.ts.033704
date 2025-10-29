@@ -1,0 +1,122 @@
+import { API_URL, OWNER_ID } from '@/lib/env';
+
+export type FetchOpts = {
+  headers?: Record<string, string>
+  signal?: AbortSignal
+  method?: 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'
+  body?: unknown
+};
+
+export type Produk = { id: string; nama: string };
+
+// --- extra types utk inventory ---
+export type ApiListResponse<T> = { data: T[]; total?: number };
+export type InventoryHistoryItem = {
+  id: string; bahan_id: string; bahan_nama?: string;
+  qty: number; tipe: 'in'|'out'|'adjust'|'void'; created_at?: string
+};
+
+export function buildHeaders(extra?: Record<string,string>): Record<string,string> {
+  return {
+    'content-type': 'application/json',
+    'x-owner-id': extra?.['x-owner-id'] || OWNER_ID || '',
+    ...(extra || {}),
+  };
+}
+
+async function handle<T = any>(res: Response, url: string, method: string): Promise<T> {
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`${method} ${url} -> ${res.status} ${txt}`);
+  }
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return res.json() as Promise<T>;
+  // @ts-ignore
+  return (await res.text()) as T;
+}
+
+function fullUrl(path: string) {
+  return path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+// Core helpers
+export async function apiGet<T = any>(path: string, opts: FetchOpts = {}) {
+  const url = fullUrl(path);
+  const res = await fetch(url, { method: 'GET', headers: buildHeaders(opts.headers), cache: 'no-store', signal: opts.signal });
+  return handle<T>(res, url, 'GET');
+}
+export async function apiSend<T = any>(path: string, body?: unknown, method: 'POST'|'PUT'|'PATCH'|'DELETE' = 'POST', opts: FetchOpts = {}) {
+  const url = fullUrl(path);
+  const res = await fetch(url, {
+    method, headers: buildHeaders(opts.headers),
+    body: body != null ? JSON.stringify(body) : undefined,
+    cache: 'no-store', signal: opts.signal
+  });
+  return handle<T>(res, url, method);
+}
+
+// Convenience & legacy aliases
+export const getJson   = apiGet;
+export const postJson  = <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'POST',o);
+export const putJson   = <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'PUT',o);
+export const patchJson = <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'PATCH',o);
+export const delJson   = <T=any>(p:string,b?:any,o?:FetchOpts)=>apiSend<T>(p,b,'DELETE',o);
+
+// wrapper yang diminta file lama
+export async function apiFetch<T=any>(path: string, opts: FetchOpts = {}) {
+  return apiGet<T>(path, opts);
+}
+export const apiPost = postJson;
+
+// date helpers yang dicari InventoryHistory
+export function toISODateLocalStart(d: Date|string) {
+  const dt = new Date(d); dt.setHours(0,0,0,0);
+  const off = dt.getTimezoneOffset()*60000;
+  return new Date(dt.getTime()-off).toISOString().slice(0,19);
+}
+export function toISODateLocalEnd(d: Date|string) {
+  const dt = new Date(d); dt.setHours(23,59,59,999);
+  const off = dt.getTimezoneOffset()*60000;
+  return new Date(dt.getTime()-off).toISOString().slice(0,19);
+}
+export function downloadText(filename: string, text: string) {
+  if (typeof document === 'undefined') return;
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 0);
+}
+
+// helper nama sama, buat balik kandidat path pertama yang truthy
+export function tryPaths(...paths: (string|undefined|null)[]) {
+  return (paths.find(Boolean) as string) || '';
+}
+
+// Callable API + alias lengkap
+async function apiCall<T=any>(path: string, opts: FetchOpts = {}): Promise<T> {
+  const m = (opts.method || 'GET').toUpperCase() as FetchOpts['method'];
+  if (m === 'GET') return apiGet<T>(path, opts);
+  return apiSend<T>(path, opts.body, m as any, opts);
+}
+export const api = Object.assign(apiCall, {
+  get: apiGet, send: apiSend,
+  post:  <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'POST',o),
+  put:   <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'PUT',o),
+  patch: <T=any>(p:string,b:any,o?:FetchOpts)=>apiSend<T>(p,b,'PATCH',o),
+  delete:<T=any>(p:string,b?:any,o?:FetchOpts)=>apiSend<T>(p,b,'DELETE',o),
+
+  // alias lama yang dicari komponen
+  getJson: apiGet, postJson, putJson, patchJson, delJson,
+  apiPost, apiFetch, tryPaths,
+});
+export { OWNER_ID } from '@/lib/env';
+export default apiCall;
+/** ===== Helpers untuk halaman Setup ===== */
+export async function setupUpsert<T = any>(seg: string, body: unknown, opts?: FetchOpts) {
+  return postJson<T>(`/setup/${seg}`, body, opts);
+}
+export async function setupUpdateById<T = any>(seg: string, id: string, body: unknown, opts?: FetchOpts) {
+  return patchJson<T>(`/setup/${seg}/${id}`, body, opts);
+}

@@ -1,87 +1,166 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
-} from "recharts";
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 
-type SeriesPoint = { t: string; y: number };
-type LogsResponse = { ok: boolean; count: number; series: SeriesPoint[]; raw?: any[] };
+/* ========================= TYPES ========================= */
+type LogItem = {
+  id: string;
+  created_at: string;
+  tipe: 'in' | 'out' | 'void' | 'adjust';
+  qty: number;
+  catatan?: string | null;
+  bahan_id: string;
+  bahan_nama?: string | null;
+  satuan?: string | null;
+};
 
-const toIDR = (n: number) =>
-  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR" }).format(n);
-const shortDate = (iso: string) =>
-  new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+type LogsResponse = {
+  bahan?: {
+    id: string;
+    nama_bahan?: string | null;
+    satuan?: string | null;
+    harga?: number | null;
+  } | null;
+  logs: LogItem[];
+};
 
+/* ========================= HELPERS ========================= */
+function safeParamId(params: ReturnType<typeof useParams>): string {
+  const raw: any = (params as any)?.id;
+  if (Array.isArray(raw)) return raw[0] ?? '';
+  return raw ?? '';
+}
+
+const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID ?? '';
+
+/* ========================= PAGE ========================= */
 export default function BahanLogsPage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams();
+  const router = useRouter();
+  const id = safeParamId(params);
+
   const [data, setData] = useState<LogsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [showJSON, setShowJSON] = useState(true);
-  const [raw, setRaw] = useState<string | null>(null); // debug
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setErr('Missing route param: id');
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+
     (async () => {
+      setLoading(true);
+      setErr(null);
       try {
-        setLoading(true); setErr(null); setRaw(null);
-        const res = await fetch(`/api/bahan/${id}/logs`, { cache: "no-store" });
-        const text = await res.text();
-        setRaw(text);
-        if (!res.ok) throw new Error(`HTTP ${res.status} - ${text}`);
-        setData(JSON.parse(text) as LogsResponse);
+        const res = await fetch(`/api/bahan/${id}/logs`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-owner-id': OWNER_ID,
+          },
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status} ${res.statusText}${t ? `: ${t}` : ''}`);
+        }
+        const json = (await res.json()) as LogsResponse;
+        if (alive) setData(json);
       } catch (e: any) {
-        setErr(e?.message ?? "Gagal memuat data.");
+        if (alive) setErr(e?.message ?? 'Unknown error');
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [id]);
 
-  const chartData = useMemo(() => (data?.series ?? []).map(p => ({ t: p.t, y: p.y })), [data]);
-
-  if (loading) return <div className="p-6">Loading…</div>;
-  if (err) return (
-    <div className="p-6">
-      <div className="text-red-600 font-semibold">Error: {err}</div>
-      {raw && <pre className="mt-3 text-xs bg-gray-50 border rounded p-3 overflow-auto">{raw}</pre>}
-    </div>
-  );
+  const title = useMemo(() => {
+    const nama =
+      data?.bahan?.nama_bahan?.trim() ||
+      data?.bahan?.id?.slice(0, 8) ||
+      '(bahan)';
+    return `Logs Bahan — ${nama}`;
+  }, [data]);
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Histori Harga Bahan</h1>
-        <button className="rounded-md px-3 py-1 border" onClick={() => setShowJSON(s => !s)}>
-          {showJSON ? "Sembunyikan JSON" : "Tampilkan JSON"}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">{title}</h1>
+          <p className="text-sm text-gray-500">
+            ID: <code>{id || '(unknown)'}</code>
+          </p>
+          {data?.bahan?.satuan && (
+            <p className="text-sm text-gray-500">Satuan: {data.bahan.satuan}</p>
+          )}
+        </div>
+        <button
+          onClick={() => router.refresh()}
+          className="rounded-xl px-3 py-2 border hover:bg-gray-50"
+        >
+          Refresh
         </button>
       </div>
 
-      <div className="text-sm text-gray-600">Total poin: <b>{data?.count ?? 0}</b></div>
+      {loading && <div className="rounded-xl border p-4">Memuat data…</div>}
 
-      {showJSON && (
-        <pre className="text-xs bg-gray-50 border rounded p-3 overflow-auto">
-{JSON.stringify(data?.series ?? [], null, 2)}
-        </pre>
+      {err && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
+          Gagal memuat: {err}
+        </div>
       )}
 
-      <div className="h-80 w-full border rounded-lg p-2">
-        {chartData.length === 0 ? (
-          <div className="h-full grid place-items-center text-gray-500">Belum ada data.</div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="t" tickFormatter={shortDate} minTickGap={24} />
-              <YAxis tickFormatter={(v) => new Intl.NumberFormat("id-ID").format(v as number)} />
-              <Tooltip formatter={(v: any) => [toIDR(v as number), "Harga"]} labelFormatter={(l: any) => shortDate(String(l))} />
-              <Line type="monotone" dataKey="y" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+      {!loading && !err && (
+        <>
+          <div className="rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left p-3">Waktu</th>
+                  <th className="text-left p-3">Tipe</th>
+                  <th className="text-right p-3">Qty</th>
+                  <th className="text-left p-3">Satuan</th>
+                  <th className="text-left p-3">Catatan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.logs ?? []).map((it) => (
+                  <tr key={it.id} className="border-t">
+                    <td className="p-3">
+                      {new Date(it.created_at).toLocaleString()}
+                    </td>
+                    <td className="p-3 uppercase">{it.tipe}</td>
+                    <td className="p-3 text-right">{it.qty}</td>
+                    <td className="p-3">{it.satuan ?? data?.bahan?.satuan ?? '-'}</td>
+                    <td className="p-3">{it.catatan ?? '-'}</td>
+                  </tr>
+                ))}
+                {(!data || data.logs.length === 0) && (
+                  <tr>
+                    <td className="p-3 text-center text-gray-500" colSpan={5}>
+                      Belum ada log.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <details className="rounded-xl border p-4">
+            <summary className="cursor-pointer font-medium">Raw JSON (debug)</summary>
+            <pre className="mt-3 overflow-auto text-xs">
+{JSON.stringify(data, null, 2)}
+            </pre>
+          </details>
+        </>
+      )}
     </div>
   );
 }

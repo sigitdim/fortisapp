@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import AuthBar from "./components/AuthBar"; // pastikan foldernya: app/components/AuthBar.tsx
+import AuthBar from "@/app/components/AuthBar"; // pastikan foldernya: app/components/AuthBar.tsx
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

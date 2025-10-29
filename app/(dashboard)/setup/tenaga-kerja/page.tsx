@@ -1,3 +1,4 @@
+'use client';
 // app/setup/tenaga-kerja/page.tsx
 "use client";
 

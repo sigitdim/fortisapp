@@ -1,3 +1,4 @@
+'use client';
 // app/setup/overhead/page.tsx
 "use client";
 

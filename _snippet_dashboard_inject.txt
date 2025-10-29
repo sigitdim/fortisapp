@@ -1,0 +1,8 @@
+// --- Tambahkan import di paling atas file app/dashboard/page.tsx ---
+import InventorySnapshot from './InventorySnapshot';
+
+
+// --- Di dalam return() atau JSX utama Dashboard, sisipkan komponen ini di section yang kamu mau ---
+<div className="mt-6">
+<InventorySnapshot />
+</div>

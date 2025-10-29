@@ -42,3 +42,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 # next-env.d.ts  <-- HAPUS baris ini (biar file tersebut TER-TRACK)
+_snapshots/
