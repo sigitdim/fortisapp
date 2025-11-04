@@ -1,79 +1,103 @@
 "use client";
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
 
-type Row = { id:string; nama?:string; nama_overhead?:string; biaya?:number; biaya_per_periode?:number };
+import React, { useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost } from "@/lib/api";
+import { rupiah } from "@/lib/format";
 
-export default function OverheadTab(){
-  const [rows,setRows] = useState<Row[]>([]);
-  const [nama,setNama] = useState("");
-  const [biaya,setBiaya] = useState<string>("");
-  const [editId,setEditId] = useState<string|null>(null);
+type OverheadItem = {
+  id: string;
+  nama?: string;
+  biaya_bulanan?: number | null;
+  created_at?: string;
+};
 
-  async function load(){
-    const r = await api("/api/setup/overhead");
-    setRows(r.data||[]);
-  }
-  useEffect(()=>{ load(); },[]);
+export default function OverheadTab() {
+  const [rows, setRows] = useState<OverheadItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function save(){
-    const body = {
-      id: editId||undefined,
-      nama,
-      nama_overhead: nama,              // kompat lama
-      biaya: Number(biaya||0),
-      biaya_per_periode: Number(biaya||0) // kompat baru
-    };
-    await api("/api/setup/overhead",{ method:"POST", body:JSON.stringify(body) });
-    reset(); load();
-  }
+  const [nama, setNama] = useState("");
+  const [biaya, setBiaya] = useState<string>("");
 
-  async function del(id:string){
-    await api(`/api/setup/overhead/${id}`,{ method:"DELETE" }).catch(async()=>{
-      await api("/api/setup/overhead/delete",{ method:"POST", body:JSON.stringify({id}) });
-    });
-    load();
+  async function refresh() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await apiGet<{ data?: OverheadItem[] }>("/setup/overhead");
+      setRows(Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? (r as any) : []));
+    } catch (e:any) {
+      setErr(e?.message || "Gagal memuat data overhead");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function onEdit(r:Row){
-    setEditId(r.id);
-    setNama(r.nama || r.nama_overhead || "");
-    setBiaya(String(r.biaya_per_periode ?? r.biaya ?? 0));
+  async function handleAdd() {
+    if (!nama.trim()) return alert("Nama biaya wajib diisi");
+    const payload = { nama: nama.trim(), biaya_bulanan: biaya ? Number(biaya) : 0 };
+    setLoading(true); setErr(null);
+    try {
+      await apiPost("/setup/overhead", payload);
+      setNama(""); setBiaya("");
+      await refresh();
+    } catch (e:any) {
+      setErr(e?.message || "Gagal menambah overhead");
+    } finally {
+      setLoading(false);
+    }
   }
-  function reset(){ setEditId(null); setNama(""); setBiaya(""); }
+
+  useEffect(() => { refresh(); }, []);
+  const total = useMemo(() => rows.reduce((a,c)=> a + (Number(c.biaya_bulanan||0)), 0), [rows]);
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <input className="border rounded px-3 py-2 w-[40%]" placeholder="Nama Overhead" value={nama} onChange={e=>setNama(e.target.value)} />
-        <input className="border rounded px-3 py-2 w-[30%]" placeholder="Biaya per periode" type="number" value={biaya} onChange={e=>setBiaya(e.target.value)} />
-        <button className="px-4 py-2 rounded bg-black text-white" onClick={save}>{editId?"Update (POST upsert)":"Tambah (POST)"}</button>
-        {editId && <button className="px-3 py-2 rounded border" onClick={reset}>Batal</button>}
-        <button className="ml-auto px-3 py-2 rounded border" onClick={load}>Refresh</button>
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold">Overhead</div>
+        <button onClick={refresh} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50" disabled={loading}>
+          {loading ? "Memuat..." : "Refresh"}
+        </button>
       </div>
 
-      <table className="w-full border rounded">
-        <thead>
-          <tr className="bg-gray-100 border-b">
-            <th className="p-2 text-left">Nama</th>
-            <th className="p-2 text-left">Biaya</th>
-            <th className="p-2 text-left">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r=>(
-            <tr key={r.id} className="border-b">
-              <td className="p-2">{r.nama || r.nama_overhead || "-"}</td>
-              <td className="p-2">{r.biaya_per_periode ?? r.biaya ?? 0}</td>
-              <td className="p-2">
-                <button className="px-2 py-1 border rounded" onClick={()=>onEdit(r)}>Edit</button>
-                <button className="ml-2 px-2 py-1 border rounded text-red-600" onClick={()=>del(r.id)}>Delete</button>
-              </td>
+      {err && <div className="rounded-lg border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+
+      <div className="flex flex-wrap gap-2">
+        <input value={nama} onChange={e=>setNama(e.target.value)} placeholder="Nama biaya" className="flex-1 min-w-[200px] rounded-lg border px-3 py-2" />
+        <input value={biaya} onChange={e=>setBiaya(e.target.value.replace(/[^\d.]/g,""))} placeholder="Biaya per bulan" className="w-[200px] rounded-lg border px-3 py-2" />
+        <button onClick={handleAdd} className="rounded-lg bg-black text-white px-4 py-2 text-sm" disabled={loading}>
+          Tambah (POST)
+        </button>
+      </div>
+
+      <div className="rounded-2xl border overflow-x-auto">
+        <table className="min-w-[640px] w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th className="py-2 px-2">Nama</th>
+              <th className="py-2 px-2">Biaya Bulanan</th>
+              <th className="py-2 px-2 w-24">Aksi</th>
             </tr>
-          ))}
-          {rows.length===0 && <tr><td className="p-4 text-center text-gray-400" colSpan={3}>Belum ada data</td></tr>}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {!rows.length && (
+              <tr><td colSpan={3} className="py-3 px-2 text-gray-500">Belum ada data</td></tr>
+            )}
+            {rows.map((r)=>(
+              <tr key={r.id} className="border-b last:border-0">
+                <td className="py-2 px-2">{r.nama || "-"}</td>
+                <td className="py-2 px-2">{rupiah(Number(r.biaya_bulanan||0))}</td>
+                <td className="py-2 px-2">
+                  <button onClick={()=>alert("Hapus/Update menunggu BE")} className="rounded-md border px-2 py-1 text-xs text-gray-600">
+                    Aksi
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr><td className="py-2 px-2 font-medium">Total</td><td className="py-2 px-2 font-medium">{rupiah(total)}</td><td/></tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }

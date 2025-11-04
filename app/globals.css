@@ -4,3 +4,50 @@ body {
   /* contoh style global */
   @apply bg-gray-50 text-gray-800;
 }
+/* ===== Fortis: hide chrome for public auth pages ===== */
+html.hide-chrome [data-fortis-sidebar],
+html.hide-chrome [data-fortis-header] {
+  display: none !important;
+}
+html.hide-chrome .page-root {
+  /* Pusatkan kartu login */
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+html.hide-chrome main {
+  /* Hilangkan padding besar saat login */
+  padding: 0 !important;
+}
+/* ===== FortisAuth (SAFE) — CSS BEGIN FortisAuth ===== */
+html.hide-chrome [data-fortis-sidebar],
+html.hide-chrome [data-fortis-header] {
+  display: none !important;
+}
+html.hide-chrome .page-root {
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+html.hide-chrome main {
+  padding: 0 !important;
+  max-width: 720px;
+  margin: 0 auto;
+}
+/* ===== FortisAuth — CSS END FortisAuth ===== */
+/* ===== FortisAuth (SAFE) — CSS BEGIN FortisAuth ===== */
+html.hide-chrome [data-fortis-sidebar],
+html.hide-chrome [data-fortis-header] {
+  display: none !important;
+}
+html.hide-chrome .page-root {
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+}
+html.hide-chrome main {
+  padding: 0 !important;
+  max-width: 720px;
+  margin: 0 auto;
+}
+/* ===== FortisAuth — CSS END FortisAuth ===== */

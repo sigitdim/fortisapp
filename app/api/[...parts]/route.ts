@@ -1,48 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from "next/server";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.fortislab.id'
-const FORWARDED_HEADERS = ['content-type','x-owner-id','authorization']
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-async function handler(req: NextRequest, ctx: { params: { parts: string[] } }) {
-  const { parts } = ctx.params
-  const qs = req.nextUrl.search ? req.nextUrl.search : ''
-  const url = `${BASE_URL}/${parts.join('/')}${qs}`
-  const method = req.method
+const API_BASE =
+  (process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id").replace(/\/+$/, "");
 
-  const headers: Record<string,string> = {}
-  FORWARDED_HEADERS.forEach(h => {
-    const v = req.headers.get(h)
-    if (v) headers[h] = v
-  })
-  if (!headers['x-owner-id'] && process.env.NEXT_PUBLIC_OWNER_ID) {
-    headers['x-owner-id'] = process.env.NEXT_PUBLIC_OWNER_ID
-  }
-
-  // Preflight fast-path
-  if (method === 'OPTIONS') {
-    const h = new Headers()
-    h.set('access-control-allow-origin', '*')
-    h.set('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
-    h.set('access-control-allow-headers', 'content-type,x-owner-id,authorization')
-    return new NextResponse(null, { status: 204, headers: h })
-  }
-
-  let body: BodyInit | undefined
-  if (!['GET','HEAD'].includes(method)) {
-    const text = await req.text()
-    body = text || undefined
-  }
-
-  try {
-    const res = await fetch(url, { method, headers, body, cache: 'no-store' })
-    const buf = Buffer.from(await res.arrayBuffer())
-    const nextHeaders = new Headers()
-    nextHeaders.set('content-type', res.headers.get('content-type') || 'application/json; charset=utf-8')
-    return new NextResponse(buf, { status: res.status, headers: nextHeaders })
-  } catch (e: any) {
-    console.error('[proxy error]', e)
-    return NextResponse.json({ ok: false, error: e?.message || 'Proxy error' }, { status: 500 })
-  }
+function buildUrl(parts: string[] | undefined, req: Request) {
+  const url = new URL(req.url);
+  const path = (parts && parts.length ? parts.join("/") : "").replace(/^\/+/, "");
+  return `${API_BASE}/${path}${url.search || ""}`;
 }
 
-export { handler as GET, handler as POST, handler as PUT, handler as PATCH, handler as DELETE, handler as OPTIONS, handler as HEAD }
+function fwdHeaders(req: Request) {
+  const h = new Headers();
+  for (const k of ["content-type", "authorization", "x-owner-id"]) {
+    const v = req.headers.get(k);
+    if (v) h.set(k, v);
+  }
+  return h;
+}
+
+async function proxy(method: string, req: Request, ctx: any) {
+  const parts: string[] | undefined = ctx?.params?.parts;
+  const url = buildUrl(parts, req);
+  const init: RequestInit = { method, headers: fwdHeaders(req), cache: "no-store" };
+  if (method !== "GET" && method !== "HEAD") init.body = await req.text();
+
+  const upstream = await fetch(url, init);
+  const text = await upstream.text();
+  const ct = upstream.headers.get("content-type") || "application/json";
+  return new NextResponse(text, { status: upstream.status, headers: { "content-type": ct } });
+}
+
+export async function GET(req: Request, ctx: any)    { return proxy("GET", req, ctx); }
+export async function POST(req: Request, ctx: any)   { return proxy("POST", req, ctx); }
+export async function PUT(req: Request, ctx: any)    { return proxy("PUT", req, ctx); }
+export async function PATCH(req: Request, ctx: any)  { return proxy("PATCH", req, ctx); }
+export async function DELETE(req: Request, ctx: any) { return proxy("DELETE", req, ctx); }
+export async function OPTIONS(req: Request, ctx: any){ return proxy("OPTIONS", req, ctx); }

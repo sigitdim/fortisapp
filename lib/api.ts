@@ -1,137 +1,111 @@
-/**
- * API helper (COMPAT ALL-IN-ONE, CALLABLE)
- * Mendukung SEMUA pola project lama:
- * - default export callable:  api("/path", opts)
- * - named export callable:    import { api } from "@/lib/api"; api("/path", opts)
- * - named helpers:            apiFetch/getJson/postJson/putJson/patchJson/delJson
- * - short alias:              apiGet/apiPost/apiPut/apiPatch/apiDel
- * - legacy:                   buildHeaders, fetchProdukList (return ARRAY), setupUpsert, setupUpdateById
- * - types:                    Produk
- */
+type ApiOptions = RequestInit & { asJson?: boolean };
+type AnyObj = Record<string, any>;
 
-export const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-export const OWNER_ID  = process.env.NEXT_PUBLIC_OWNER_ID  || "";
-
-export type FetchOpts = {
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  headers?: Record<string, string>;
-  body?: any;
-  cache?: RequestCache;
-  next?: any;
-  signal?: AbortSignal;
-};
-
-export type Produk = { id: string; nama: string };
-
-function buildUrl(path: string) {
-  return path.startsWith("http") ? path : `/api${path.startsWith("/") ? path : `/${path}`}`;
+/* ===== owner id reader (works in browser, safe on server) ===== */
+function readOwnerId(): string {
+  try {
+    if (typeof window !== "undefined") {
+      const ls = window.localStorage?.getItem("fortisapp.owner_id");
+      if (ls) return ls;
+      const m = document.cookie.match(/(?:^|;\\s*)fortis_owner_id=([^;]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    }
+  } catch {}
+  return process.env.NEXT_PUBLIC_OWNER_ID || "";
 }
 
-/** Dipakai di beberapa file lama */
-export function buildHeaders(extra?: Record<string, string>): Record<string, string> {
-  return {
+/* ===== legacy: buildHeaders ===== */
+export function buildHeaders(extra?: HeadersInit): HeadersInit {
+  const ownerId = readOwnerId();
+  const base: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
-    ...(extra || {}),
+    "x-owner-id": ownerId,
   };
+  return { ...(base as any), ...(extra as any) };
 }
 
-/** Core fetch */
-export async function apiFetch<T = any>(path: string, opts: FetchOpts = {}): Promise<T> {
-  const url = buildUrl(path);
-  const { method = "GET", headers = {}, body, ...rest } = opts;
-
-  const res = await fetch(url, {
-    method,
-    headers: buildHeaders(headers),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    ...rest,
-  });
-
+/* ===== legacy: api (uses FE proxy /api/...) ===== */
+export async function api(path: string, opts: ApiOptions = {}) {
+  const { asJson = false, headers, ...rest } = opts;
+  const url = `/api${path.startsWith("/") ? path : `/${path}`}`;
+  const res = await fetch(url, { ...rest, headers: buildHeaders(headers) });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${method} ${url} -> ${res.status} ${res.statusText}: ${text}`);
+    throw new Error(text || `Request failed: ${res.status}`);
   }
-  const ct = res.headers.get("content-type") || "";
-  return (ct.includes("application/json") ? res.json() : res.text()) as any;
+  return asJson ? (res.json() as any) : (res as any);
 }
 
-/* ---- Helpers klasik ---- */
-export async function getJson<T = any>(path: string, opts: Omit<FetchOpts, "method" | "body"> = {}) {
-  return apiFetch<T>(path, { ...opts, method: "GET" });
+/* ===== legacy: getJson/apiGet/apiPost/... (loose types) ===== */
+export async function getJson<T = any>(path: string, init?: RequestInit): Promise<T> {
+  return api(path, { method: "GET", asJson: true, ...(init || {}) }) as Promise<T>;
 }
-export async function postJson<T = any>(path: string, body?: any, opts: Omit<FetchOpts, "method"> = {}) {
-  return apiFetch<T>(path, { ...opts, method: "POST", body });
+export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
+  return getJson<T>(path, init);
 }
-export async function putJson<T = any>(path: string, body?: any, opts: Omit<FetchOpts, "method"> = {}) {
-  return apiFetch<T>(path, { ...opts, method: "PUT", body });
+export async function apiPost<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
+  return api(path, { method: "POST", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
 }
-export async function patchJson<T = any>(path: string, body?: any, opts: Omit<FetchOpts, "method"> = {}) {
-  return apiFetch<T>(path, { ...opts, method: "PATCH", body });
+export async function apiPut<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
+  return api(path, { method: "PUT", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
 }
-export async function delJson<T = any>(path: string, opts: Omit<FetchOpts, "method" | "body"> = {}) {
-  return apiFetch<T>(path, { ...opts, method: "DELETE" });
+export async function apiDelete<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
+  return api(path, { method: "DELETE", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
 }
 
-/* ---- Short alias yang sering dipakai ---- */
-export const apiGet   = getJson;
-export const apiPost  = postJson;
-export const apiPut   = putJson;
-export const apiPatch = patchJson;
-export const apiDel   = delJson;
+/* ===== new alias kept for convenience ===== */
+export async function apiFetch<T = any>(path: string, opts: ApiOptions = {}): Promise<T> {
+  return api(path, { asJson: true, ...opts }) as Promise<T>;
+}
 
-/* ---------- Compat khusus: fetchProdukList (RETURN ARRAY) ---------- */
-async function tryFirst(paths: string[]): Promise<any[]> {
-  for (const p of paths) {
-    try {
-      const r = await getJson<any>(p);
-      const arr = Array.isArray(r) ? r : (r?.data ?? []);
-      if (Array.isArray(arr)) return arr;
-    } catch {/* next */}
+/* ===== extras used around the app (pricing/setup/inventory) ===== */
+function toQuery(q?: AnyObj) {
+  if (!q || typeof q !== "object") return "";
+  const sp = new URLSearchParams();
+  Object.entries(q).forEach(([k,v]) => { if (v!=null) sp.append(k, String(v)); });
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
+export async function fetchProdukList<T = any>(query?: AnyObj, overridePath?: string): Promise<T> {
+  const candidates = overridePath ? [overridePath] : ["/produk/list","/products/list","/produk","/products"];
+  let lastErr: any = null;
+  for (const p of candidates) {
+    try { return (await api(`${p}${toQuery(query)}`, { method:"GET", asJson:true })) as T; }
+    catch (e) { lastErr = e; }
   }
-  return [];
-}
-/** Dipanggil sebagai: import { fetchProdukList } from "@/lib/api" */
-export async function fetchProdukList(query: Record<string, any> = {}): Promise<any[]> {
-  const q = new URLSearchParams();
-  Object.entries(query).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== "") q.set(k, String(v)); });
-  const suf = q.toString() ? `?${q.toString()}` : "";
-  return tryFirst([ `/produk${suf}`, `/products${suf}`, `/pricing/produk${suf}` ]);
+  throw lastErr || new Error("fetchProdukList failed");
 }
 
-/* ---------- Compat setup helpers ---------- */
-export async function setupUpsert(resource: string, body: any) {
-  // ex: setupUpsert("bahan", { nama_bahan, satuan, harga })
-  return postJson(`/setup/${resource}`, body);
+export async function setupUpsert<T = any>(resource: string, payload: any, method: "POST"|"PUT"="POST"): Promise<T> {
+  return method === "PUT" ? apiPut<T>(`/setup/${resource}`, payload) : apiPost<T>(`/setup/${resource}`, payload);
 }
-export async function setupUpdateById(resource: string, id: string, body: any) {
-  // ex: setupUpdateById("bahan", bahan_id, payload)
-  return putJson(`/setup/${resource}/${id}`, body);
+export async function setupUpdateById<T = any>(resource: string, id: string, payload: any): Promise<T> {
+  return apiPut<T>(`/setup/${resource}/${id}`, payload);
+}
+export async function getHpp<T = any>(q?: AnyObj): Promise<T> {
+  return apiGet<T>(`/report/hpp${toQuery(q)}`);
+}
+export async function inventorySummary<T = any>(q?: AnyObj): Promise<T> {
+  return apiGet<T>(`/inventory/summary${toQuery(q)}`);
+}
+export async function bahanLogs<T = any>(id: string): Promise<T> {
+  return apiGet<T>(`/bahan/${id}/logs`);
 }
 
-/* ---------- Callable export: api(...) ---------- */
-function callableApi<T = any>(path: string, opts?: FetchOpts): Promise<T> {
-  return apiFetch<T>(path, opts);
-}
-/* tambahkan properti agar api.xxx tetap ada */
-(callableApi as any).apiFetch = apiFetch;
-(callableApi as any).getJson = getJson;
-(callableApi as any).postJson = postJson;
-(callableApi as any).putJson = putJson;
-(callableApi as any).patchJson = patchJson;
-(callableApi as any).delJson = delJson;
-(callableApi as any).apiGet = apiGet;
-(callableApi as any).apiPost = apiPost;
-(callableApi as any).apiPut = apiPut;
-(callableApi as any).apiPatch = apiPatch;
-(callableApi as any).apiDel = apiDel;
-(callableApi as any).buildHeaders = buildHeaders;
-(callableApi as any).fetchProdukList = fetchProdukList;
-(callableApi as any).setupUpsert = setupUpsert;
-(callableApi as any).setupUpdateById = setupUpdateById;
-(callableApi as any).BASE_URL = BASE_URL;
-(callableApi as any).OWNER_ID = OWNER_ID;
+/* ===== common aliases some files may expect ===== */
+export { fetchProdukList as fetchProductList, fetchProdukList as getProdukList, fetchProdukList as getProductList };
+export { getJson as fetchJson, apiPost as postJson, apiPut as putJson, apiDelete as deleteJson };
+export { getHpp as fetchHpp };
 
-/* Named + default export */
-export { callableApi as api };
-export default callableApi;
+/* ===== default export for default import style ===== */
+const _default = {
+  buildHeaders, api,
+  getJson, apiGet, apiPost, apiPut, apiDelete, apiFetch,
+  fetchProdukList, fetchProductList: fetchProdukList, getProdukList: fetchProdukList, getProductList: fetchProdukList,
+  setupUpsert, setupUpdateById,
+  getHpp, fetchHpp: getHpp,
+  inventorySummary, bahanLogs,
+  fetchJson: getJson, postJson: apiPost, putJson: apiPut, deleteJson: apiDelete,
+};
+export default _default;

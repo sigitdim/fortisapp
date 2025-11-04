@@ -1,70 +1,99 @@
 "use client";
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
 
-type Row = { id:string; nama?:string; gaji_bulanan?:number };
+import React, { useEffect, useState } from "react";
+import { apiGet, apiPost } from "@/lib/api";
+import { rupiah } from "@/lib/format";
 
-export default function TenagaKerjaTab(){
-  const [rows,setRows] = useState<Row[]>([]);
-  const [nama,setNama] = useState("");
-  const [gaji,setGaji] = useState<string>("");
-  const [editId,setEditId] = useState<string|null>(null);
+type Tenaga = {
+  id: string;
+  nama: string;
+  gaji_bulanan?: number | null;
+  created_at?: string;
+};
 
-  async function load(){
-    const r = await api("/api/setup/tenaga_kerja");
-    setRows(r.data||[]);
+export default function TenagaKerjaTab() {
+  const [rows, setRows] = useState<Tenaga[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [nama, setNama] = useState("");
+  const [gaji, setGaji] = useState<string>("");
+
+  async function refresh() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await apiGet<{ data?: Tenaga[] }>("/setup/tenaga");
+      setRows(Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? (r as any) : []));
+    } catch (e:any) {
+      setErr(e?.message || "Gagal memuat data tenaga kerja");
+    } finally {
+      setLoading(false);
+    }
   }
-  useEffect(()=>{ load(); },[]);
 
-  async function save(){
-    if(!nama || !gaji) return alert("Param wajib: nama(string), gaji_bulanan(number)");
-    const body = { id: editId||undefined, nama, gaji_bulanan: Number(gaji) };
-    await api("/api/setup/tenaga_kerja",{ method:"POST", body: JSON.stringify(body) });
-    reset(); load();
+  async function handleAdd() {
+    if (!nama.trim()) return alert("Nama wajib diisi");
+    const payload = { nama: nama.trim(), gaji_bulanan: gaji ? Number(gaji) : 0 };
+    setLoading(true); setErr(null);
+    try {
+      await apiPost("/setup/tenaga", payload);
+      setNama(""); setGaji("");
+      await refresh();
+    } catch (e:any) {
+      setErr(e?.message || "Gagal menambah data");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function del(id:string){
-    await api(`/api/setup/tenaga_kerja/${id}`,{ method:"DELETE" }).catch(async()=>{
-      await api("/api/setup/tenaga_kerja/delete",{ method:"POST", body: JSON.stringify({id})});
-    });
-    load();
-  }
-
-  function onEdit(r:Row){ setEditId(r.id); setNama(r.nama||""); setGaji(String(r.gaji_bulanan||"")); }
-  function reset(){ setEditId(null); setNama(""); setGaji(""); }
+  useEffect(() => { refresh(); }, []);
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <input className="border rounded px-3 py-2 w-[40%]" placeholder="Nama" value={nama} onChange={e=>setNama(e.target.value)} />
-        <input className="border rounded px-3 py-2 w-[30%]" placeholder="Gaji bulanan" type="number" value={gaji} onChange={e=>setGaji(e.target.value)} />
-        <button className="px-4 py-2 rounded bg-black text-white" onClick={save}>{editId?"Update (POST upsert)":"Tambah (POST)"}</button>
-        {editId && <button className="px-3 py-2 rounded border" onClick={reset}>Batal</button>}
-        <button className="ml-auto px-3 py-2 rounded border" onClick={load}>Refresh</button>
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold">Tenaga Kerja</div>
+        <button onClick={refresh} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50" disabled={loading}>
+          {loading ? "Memuat..." : "Refresh"}
+        </button>
       </div>
 
-      <table className="w-full border rounded">
-        <thead>
-          <tr className="bg-gray-100 border-b">
-            <th className="p-2 text-left">Nama</th>
-            <th className="p-2 text-left">Biaya</th>
-            <th className="p-2 text-left">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r=>(
-            <tr key={r.id} className="border-b">
-              <td className="p-2">{r.nama||"-"}</td>
-              <td className="p-2">{r.gaji_bulanan??0}</td>
-              <td className="p-2">
-                <button className="px-2 py-1 border rounded" onClick={()=>onEdit(r)}>Edit</button>
-                <button className="ml-2 px-2 py-1 border rounded text-red-600" onClick={()=>del(r.id)}>Delete</button>
-              </td>
+      {err && <div className="rounded-lg border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+
+      <div className="flex flex-wrap gap-2">
+        <input value={nama} onChange={e=>setNama(e.target.value)} placeholder="Nama" className="flex-1 min-w-[200px] rounded-lg border px-3 py-2" />
+        <input value={gaji} onChange={e=>setGaji(e.target.value.replace(/[^\d.]/g,""))} placeholder="Gaji bulanan" className="w-[200px] rounded-lg border px-3 py-2" />
+        <button onClick={handleAdd} className="rounded-lg bg-black text-white px-4 py-2 text-sm" disabled={loading}>
+          Tambah (POST)
+        </button>
+      </div>
+
+      <div className="rounded-2xl border overflow-x-auto">
+        <table className="min-w-[640px] w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th className="py-2 px-2">Nama</th>
+              <th className="py-2 px-2">Biaya</th>
+              <th className="py-2 px-2 w-24">Aksi</th>
             </tr>
-          ))}
-          {rows.length===0 && <tr><td className="p-4 text-center text-gray-400" colSpan={3}>Belum ada data</td></tr>}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {!rows.length && (
+              <tr><td colSpan={3} className="py-3 px-2 text-gray-500">Belum ada data</td></tr>
+            )}
+            {rows.map((r)=>(
+              <tr key={r.id} className="border-b last:border-0">
+                <td className="py-2 px-2">{r.nama}</td>
+                <td className="py-2 px-2">{rupiah(Number(r.gaji_bulanan||0))}</td>
+                <td className="py-2 px-2">
+                  <button onClick={()=>alert("Hapus/Update menunggu BE")} className="rounded-md border px-2 py-1 text-xs text-gray-600">
+                    Aksi
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

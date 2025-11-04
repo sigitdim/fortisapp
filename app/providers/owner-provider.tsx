@@ -1,29 +1,43 @@
 "use client";
 
-import { ReactNode, useEffect, useState, createContext, useContext } from "react";
+import React, { createContext, useEffect, useState, useContext } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
-type Ctx = { ownerId: string | null };
-const OwnerCtx = createContext<Ctx>({ ownerId: null });
+type OwnerCtx = { ownerId: string|null; email: string|null; loading: boolean };
+const Ctx = createContext<OwnerCtx>({ ownerId: null, email: null, loading: true });
 
-export function OwnerProvider({ children }: { children: ReactNode }) {
-  const [ownerId, setOwnerId] = useState<string | null>(null);
+export function OwnerProvider({ children }: { children: React.ReactNode }) {
+  const [ownerId, setOwnerId] = useState<string|null>(null);
+  const [email, setEmail] = useState<string|null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let unsub: (() => void) | undefined;
+
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      setOwnerId(data.user?.id ?? null); // UUID user jadi owner_id
+      try {
+        const { data } = await supabase.auth.getSession();
+        setOwnerId(data.session?.user?.id ?? null);
+        setEmail(data.session?.user?.email ?? null);
+      } finally {
+        setLoading(false);
+      }
+
+      const { data: sub } = supabase.auth.onAuthStateChange(
+        (_event: AuthChangeEvent, session: Session | null) => {
+          setOwnerId(session?.user?.id ?? null);
+          setEmail(session?.user?.email ?? null);
+        }
+      );
+      unsub = () => sub.subscription.unsubscribe();
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setOwnerId(s?.user?.id ?? null);
-    });
-    return () => sub.subscription.unsubscribe();
+    return () => { try { unsub?.(); } catch {} };
   }, []);
 
-  return <OwnerCtx.Provider value={{ ownerId }}>{children}</OwnerCtx.Provider>;
+  return <Ctx.Provider value={{ ownerId, email, loading }}>{children}</Ctx.Provider>;
 }
 
-export function useOwner() {
-  return useContext(OwnerCtx);
-}
+export const useOwner = () => useContext(Ctx);
+export default OwnerProvider;

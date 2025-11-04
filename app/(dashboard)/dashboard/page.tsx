@@ -1,6 +1,7 @@
 'use client';
 
 import { InventoryWidget } from './_components/InventoryWidget';
+import Greeting from "@/components/Greeting";
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/app/lib/api';
 import ExportCsvButton from '@/app/components/ExportCsvButton';
@@ -102,6 +103,8 @@ export default function DashboardPage(){
 
   return (
     <div className="p-6 space-y-4">
+<Greeting />
+<h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex items-center gap-2">

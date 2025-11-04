@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { listProduk, upsertProduk, type Produk } from "@/lib/products";

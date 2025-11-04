@@ -1,152 +1,161 @@
-// @ts-nocheck
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import React, { useEffect, useMemo, useState } from 'react';
 
-type TKRow = {
+type TK = {
   id: string;
   nama: string;
-  gaji_bulanan?: number | null;
-  jam_per_hari?: number | null;
-  hari_per_minggu?: number | null;
-  catatan?: string | null;
+  gaji: number;
   created_at?: string;
+  owner_id?: string;
 };
 
-function toNum(v: unknown): number {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (v == null || v === "") return 0;
-  const s = String(v).replace(/[^0-9.,-]/g, "").replace(/\./g, "").replace(",", ".");
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
-}
-function rupiah(n: number): string {
-  try {
-    return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n || 0);
-  } catch {
-    return `Rp ${Math.round(n || 0).toLocaleString("id-ID")}`;
-  }
+type ApiList = { ok: boolean; data: TK[] } | { ok: true; count?: number; data: TK[] };
+
+async function apiFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) throw new Error(`API ${init?.method || 'GET'} ${path} -> ${res.status} : ${text}`);
+  try { return JSON.parse(text) as T; } catch { return text as unknown as T; }
 }
 
 export default function TenagaKerjaPage() {
-  const [rows, setRows] = useState<TKRow[]>([]);
+  const [list, setList] = useState<TK[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function loadData() {
+  const [nama, setNama] = useState('');
+  const [gaji, setGaji] = useState<string>('');
+
+  const total = useMemo(() => list.reduce((a, b) => a + (Number(b.gaji) || 0), 0), [list]);
+
+  async function load() {
+    setErr(null);
     setLoading(true);
     try {
-      const j = await api.getJson<any>("/api/setup/tenaga_kerja");
-      const arr: TKRow[] = Array.isArray(j?.data) ? j.data : (Array.isArray(j) ? j : []);
-      setRows(arr);
+      const r = await apiFetch<ApiList>('/api/setup/tenaga_kerja');
+      // BE bisa kirim {ok,true,data:[...]} atau {ok,true,count,n} – dua-duanya kita handle
+      const data = (r as any).data as TK[];
+      setList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+      setList([]);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { loadData(); }, []);
+  async function handleAdd() {
+    if (!nama.trim()) return alert('Nama wajib diisi');
+    const val = Number(String(gaji).replace(/[^\d.-]/g, ''));
+    if (!Number.isFinite(val) || val < 0) return alert('Gaji harus angka >= 0');
 
-  async function createRow() {
-    setSaving(true);
+    setErr(null);
     try {
-      const payload: Partial<TKRow> = { nama: "Karyawan Baru", gaji_bulanan: 0, jam_per_hari: 8, hari_per_minggu: 6 };
-      await api.postJson("/api/setup/tenaga_kerja", payload);
-      await loadData();
-    } finally {
-      setSaving(false);
+      await apiFetch('/api/setup/tenaga_kerja', {
+        method: 'POST',
+        body: JSON.stringify({ nama, gaji: val }),
+      });
+      setNama('');
+      setGaji('');
+      await load();
+    } catch (e: any) {
+      setErr(String(e?.message || e));
     }
   }
 
-  async function saveRow(row: TKRow) {
-    setSaving(true);
+  async function handleDelete(id: string) {
+    if (!confirm('Hapus baris ini?')) return;
+    setErr(null);
     try {
-      const body = {
-        nama: row.nama,
-        gaji_bulanan: toNum(row.gaji_bulanan ?? 0),
-        jam_per_hari: toNum(row.jam_per_hari ?? 0),
-        hari_per_minggu: toNum(row.hari_per_minggu ?? 0),
-        catatan: row.catatan ?? null,
-      };
-      await api.putJson(`/api/setup/tenaga_kerja/${row.id}`, body);
-      await loadData();
-    } finally {
-      setSaving(false);
+      await apiFetch(`/api/setup/tenaga_kerja/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (e: any) {
+      setErr(String(e?.message || e));
     }
   }
 
-  async function deleteRow(id: string) {
-    setSaving(true);
-    try {
-      await api.delJson(`/api/setup/tenaga_kerja/${id}`);
-      await loadData();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function onCellChange(id: string, key: keyof TKRow, value: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [key]: key.includes("gaji") || key.includes("jam") || key.includes("hari") ? toNum(value) : value } as TKRow : r))
-    );
-  }
+  useEffect(() => { load(); }, []);
 
   return (
     <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={createRow} disabled={saving} className="px-4 py-2 rounded-xl bg-black text-white disabled:opacity-50">
-          + Tambah Karyawan
+      <h1 className="text-2xl font-semibold">Tenaga Kerja</h1>
+
+      {err && (
+        <div className="rounded-md border border-red-300 bg-red-50 text-red-800 p-3 text-sm">
+          {err}
+        </div>
+      )}
+
+      <div className="flex gap-2 items-center">
+        <input
+          value={nama}
+          onChange={e => setNama(e.target.value)}
+          placeholder="Nama"
+          className="flex-1 px-3 py-2 rounded-md border"
+        />
+        <input
+          value={gaji}
+          onChange={e => setGaji(e.target.value)}
+          placeholder="Gaji bulanan"
+          className="w-56 px-3 py-2 rounded-md border"
+        />
+        <button
+          onClick={handleAdd}
+          className="px-4 py-2 rounded-md bg-black text-white"
+        >
+          Tambah (POST)
         </button>
-        {loading && <span className="text-sm text-gray-500">Memuat…</span>}
+        <button
+          onClick={load}
+          className="ml-auto px-3 py-2 rounded-md border"
+        >
+          Refresh
+        </button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border">
+      <div className="overflow-x-auto rounded-md border">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-3 py-2 text-left">Nama</th>
-              <th className="px-3 py-2 text-left">Gaji / bln</th>
-              <th className="px-3 py-2 text-left">Jam / hari</th>
-              <th className="px-3 py-2 text-left">Hari / mgg</th>
-              <th className="px-3 py-2 text-left">Catatan</th>
-              <th className="px-3 py-2"></th>
+              <th className="text-left px-3 py-2">Nama</th>
+              <th className="text-left px-3 py-2">Biaya</th>
+              <th className="text-left px-3 py-2">Aksi</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-3 py-2">
-                  <input className="border rounded-md px-2 py-1 w-56" value={r.nama ?? ""} onChange={(e) => onCellChange(r.id, "nama", e.target.value)} />
-                </td>
-                <td className="px-3 py-2">
-                  <input className="border rounded-md px-2 py-1 w-40" value={String(r.gaji_bulanan ?? 0)} onChange={(e) => onCellChange(r.id, "gaji_bulanan", e.target.value)} />
-                  <div className="text-[11px] text-gray-500">{rupiah(toNum(r.gaji_bulanan ?? 0))}</div>
-                </td>
-                <td className="px-3 py-2">
-                  <input className="border rounded-md px-2 py-1 w-28" value={String(r.jam_per_hari ?? 0)} onChange={(e) => onCellChange(r.id, "jam_per_hari", e.target.value)} />
-                </td>
-                <td className="px-3 py-2">
-                  <input className="border rounded-md px-2 py-1 w-28" value={String(r.hari_per_minggu ?? 0)} onChange={(e) => onCellChange(r.id, "hari_per_minggu", e.target.value)} />
-                </td>
-                <td className="px-3 py-2">
-                  <input className="border rounded-md px-2 py-1 w-64" value={r.catatan ?? ""} onChange={(e) => onCellChange(r.id, "catatan", e.target.value)} />
-                </td>
-                <td className="px-3 py-2 flex gap-2">
-                  <button onClick={() => saveRow(r)} disabled={saving} className="px-3 py-1 rounded-lg bg-emerald-600 text-white disabled:opacity-50">
-                    Simpan
-                  </button>
-                  <button onClick={() => deleteRow(r.id)} disabled={saving} className="px-3 py-1 rounded-lg bg-red-600 text-white disabled:opacity-50">
-                    Hapus
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && !loading && (
-              <tr>
-                <td className="px-3 py-6 text-center text-gray-500" colSpan={6}>Belum ada data.</td>
-              </tr>
+            {loading ? (
+              <tr><td className="px-3 py-3" colSpan={3}>Memuat…</td></tr>
+            ) : list.length === 0 ? (
+              <tr><td className="px-3 py-3" colSpan={3}>Belum ada data</td></tr>
+            ) : (
+              list.map(row => (
+                <tr key={row.id} className="border-t">
+                  <td className="px-3 py-2">{row.nama}</td>
+                  <td className="px-3 py-2">Rp {Number(row.gaji || 0).toLocaleString('id-ID')}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => handleDelete(row.id)}
+                      className="px-3 py-1 rounded-md border"
+                    >Hapus</button>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
+          <tfoot className="bg-gray-50 border-t">
+            <tr>
+              <td className="px-3 py-2 font-medium">Total</td>
+              <td className="px-3 py-2 font-medium">Rp {total.toLocaleString('id-ID')}</td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

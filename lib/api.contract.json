@@ -1,0 +1,10 @@
+{
+  "mustExport": [
+    "buildHeaders", "api", "getJson", "apiGet", "apiPost", "apiPut", "apiDelete", "apiFetch",
+    "fetchProdukList", "fetchProductList", "getProdukList", "getProductList",
+    "setupUpsert", "setupUpdateById",
+    "getHpp", "fetchHpp",
+    "inventorySummary", "bahanLogs",
+    "fetchJson", "postJson", "putJson", "deleteJson"
+  ]
+}

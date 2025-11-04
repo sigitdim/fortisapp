@@ -1,6 +1,7 @@
 // components/pricing/AISuggestModal.tsx
 "use client";
 
+import { usePathname } from 'next/navigation';
 import * as React from "react";
 import { pricingApply, pricingSuggest, AISuggestionItem, AISuggestionResp } from "@/lib/pricing";
 
@@ -13,7 +14,7 @@ type Props = {
   onApplied?: (newPrice: number) => void; // panggil ulang list produk kalau perlu
 };
 
-export default function AISuggestModal({
+export default function AISuggestModalInner({
   open,
   onClose,
   produkId,
@@ -21,6 +22,13 @@ export default function AISuggestModal({
   defaultTarget = 0.35,
   onApplied,
 }: Props) {
+  // Tampilkan hanya di halaman COGS/HPP/PRICING
+  const pathname = usePathname();
+  const path = typeof pathname === 'string' ? pathname : '';
+  const ALLOW = ['/hpp', '/cogs', '/setup/bom-cogs', '/pricing'];
+  const allowed = ALLOW.some(p => path === p || path.startsWith(p + '/') || path.startsWith(p));
+  if (!allowed) return null;
+
   const [loading, setLoading] = React.useState(false);
   const [target, setTarget] = React.useState(String(Math.round(defaultTarget * 100)));
   const [data, setData] = React.useState<AISuggestionResp | null>(null);

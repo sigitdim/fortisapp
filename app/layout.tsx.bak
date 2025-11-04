@@ -1,0 +1,28 @@
+import "./globals.css";
+import React from "react";
+import HideChrome from "@/components/HideChrome";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="id">
+      <body>
+        {/* Komponen client kecil untuk toggle class <html>. Tidak mengubah layout. */}
+        <HideChrome />
+
+        <div className="min-h-screen flex page-root">
+          {/* Bungkus sidebar dengan data-attr agar bisa di-hide via CSS */}
+          <aside data-fortis-sidebar className="w-[260px] shrink-0">
+            <Sidebar />
+          </aside>
+
+          <div className="flex-1 flex flex-col">
+            <div data-fortis-header>
+              <Header />
+            </div>
+            <main className="p-4 md:p-6">{children}</main>
+          </div>
+        </div>
+      </body>
+    </html>
+  );
+}

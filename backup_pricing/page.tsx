@@ -1,3 +1,4 @@
+// @ts-nocheck
 // app/pricing/page.tsx
 
 "use client";

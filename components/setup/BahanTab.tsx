@@ -1,100 +1,145 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
 
-type Row = { id:string; nama:string; satuan?:string; harga?:number };
+import React, { useEffect, useMemo, useState } from "react";
+import api, { apiGet, apiPost } from "@/lib/api";
+import { rupiah } from "@/lib/format";
+
+type Bahan = {
+  id: string;
+  nama_bahan: string;
+  satuan?: string | null;
+  harga?: number | null;
+  created_at?: string;
+};
 
 export default function BahanTab() {
-  const [rows,setRows] = useState<Row[]>([]);
-  const [nama,setNama] = useState("");
-  const [satuan,setSatuan] = useState("");
-  const [harga,setHarga] = useState<string>("");
-  const [editId,setEditId] = useState<string|null>(null);
-  const isEdit = !!editId;
+  const [rows, setRows] = useState<Bahan[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function load() {
-    const r = await api("/api/setup/bahan");
-    setRows(r.data || r.rows || []);
+  // form state
+  const [nama, setNama] = useState("");
+  const [satuan, setSatuan] = useState("");
+  const [harga, setHarga] = useState<string>("");
+
+  async function refresh() {
+    setLoading(true); setErr(null);
+    try {
+      const r = await apiGet<{ data?: Bahan[] }>("/setup/bahan");
+      setRows(Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? (r as any) : []));
+    } catch (e:any) {
+      setErr(e?.message || "Gagal memuat data");
+    } finally {
+      setLoading(false);
+    }
   }
-  useEffect(()=>{ load(); },[]);
 
-  async function save() {
-    const body:any = {
-      id: editId || undefined,
-      nama,
-      satuan,
-      harga: Number(harga||0),
+  async function handleAdd() {
+    if (!nama.trim()) return alert("Nama bahan wajib diisi");
+    const payload = {
+      nama_bahan: nama.trim(),
+      satuan: satuan.trim() || null,
+      harga: harga ? Number(harga) : null,
     };
-    // upsert via POST
-    await api("/api/setup/bahan",{ method:"POST", body:JSON.stringify(body) });
-    reset();
-    load();
+    setLoading(true); setErr(null);
+    try {
+      await apiPost("/setup/bahan", payload);
+      setNama(""); setSatuan(""); setHarga("");
+      await refresh();
+    } catch (e:any) {
+      setErr(e?.message || "Gagal menambah bahan");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function del(id:string) {
-    // pakai DELETE by id (BE sdh support)
-    await api(`/api/setup/bahan/${id}`,{ method:"DELETE" }).catch(async()=>{
-      // fallback POST /delete
-      await api("/api/setup/bahan/delete",{ method:"POST", body:JSON.stringify({id}) });
-    });
-    load();
-  }
+  useEffect(() => { refresh(); }, []);
 
-  function onEdit(r:Row){
-    setEditId(r.id); setNama(r.nama||""); setSatuan(r.satuan||""); setHarga(String(r.harga||""));
-  }
-  function reset(){ setEditId(null); setNama(""); setSatuan(""); setHarga(""); }
-
-  const csv = useMemo(()=>{
-    const header = "nama,satuan,harga\n";
-    const lines = rows.map(r=>[r.nama,r.satuan??"",r.harga??0].join(",")).join("\n");
-    return header+lines;
-  },[rows]);
+  const total = useMemo(() => rows.length, [rows]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <input className="border rounded px-3 py-2 w-64" placeholder="Nama" value={nama} onChange={e=>setNama(e.target.value)} />
-        <input className="border rounded px-3 py-2 w-48" placeholder="Satuan (gram/ml/pcs)" value={satuan} onChange={e=>setSatuan(e.target.value)} />
-        <input className="border rounded px-3 py-2 w-48" placeholder="Harga per satuan" type="number" value={harga} onChange={e=>setHarga(e.target.value)} />
-        <button onClick={save} className="px-4 py-2 rounded bg-black text-white">{isEdit?"Update (POST upsert)":"Tambah (POST)"}</button>
-        {isEdit && <button onClick={reset} className="px-3 py-2 rounded border">Batal</button>}
-        <a
-          href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`}
-          download="bahan.csv"
-          className="ml-auto px-3 py-2 rounded border"
-        >Export CSV</a>
-        <button onClick={load} className="px-3 py-2 rounded border">Refresh</button>
+      <div className="flex items-center justify-between">
+        <div className="text-lg font-semibold">Setup Bahan</div>
+        <button
+          onClick={refresh}
+          className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
+          disabled={loading}
+        >
+          {loading ? "Memuat..." : "Refresh"}
+        </button>
       </div>
 
-      <table className="w-full border rounded">
-        <thead>
-          <tr className="bg-gray-100 border-b">
-            <th className="p-2 text-left w-[40%]">Nama</th>
-            <th className="p-2 text-left w-[15%]">Satuan</th>
-            <th className="p-2 text-left w-[15%]">Harga/Satuan</th>
-            <th className="p-2 text-left w-[30%]">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r=>(
-            <tr key={r.id} className="border-b">
-              <td className="p-2">{r.nama||"-"}</td>
-              <td className="p-2">{r.satuan||"-"}</td>
-              <td className="p-2">{r.harga??0}</td>
-              <td className="p-2">
-                <button className="px-2 py-1 border rounded" onClick={()=>onEdit(r)}>Edit</button>
-                <button className="ml-2 px-2 py-1 border rounded text-red-600" onClick={()=>del(r.id)}>Delete</button>
-                <button className="ml-2 px-2 py-1 border rounded"
-                  onClick={()=>window.dispatchEvent(new CustomEvent("open-bahan-logs",{ detail:{ id:r.id, nama:r.nama } }))}>
-                  Logs
-                </button>
-              </td>
+      {err && <div className="rounded-lg border border-red-300 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+
+      {/* Form tambah */}
+      <div className="flex flex-wrap gap-2">
+        <input
+          value={nama}
+          onChange={e=>setNama(e.target.value)}
+          placeholder="Nama bahan"
+          className="flex-1 min-w-[160px] rounded-lg border px-3 py-2"
+        />
+        <input
+          value={satuan}
+          onChange={e=>setSatuan(e.target.value)}
+          placeholder="Satuan (pcs, gr, ml)"
+          className="w-[180px] rounded-lg border px-3 py-2"
+        />
+        <input
+          value={harga}
+          onChange={e=>setHarga(e.target.value.replace(/[^\d.]/g,""))}
+          placeholder="Harga (opsional)"
+          className="w-[180px] rounded-lg border px-3 py-2"
+        />
+        <button
+          onClick={handleAdd}
+          className="rounded-lg bg-black text-white px-4 py-2 text-sm"
+          disabled={loading}
+        >
+          Tambah (POST)
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-2xl border overflow-x-auto">
+        <table className="min-w-[640px] w-full text-sm">
+          <thead>
+            <tr className="text-left border-b">
+              <th className="py-2 px-2">Nama</th>
+              <th className="py-2 px-2">Satuan</th>
+              <th className="py-2 px-2">Harga</th>
+              <th className="py-2 px-2 w-24">Aksi</th>
             </tr>
-          ))}
-          {rows.length===0 && <tr><td className="p-4 text-center text-gray-400" colSpan={4}>Belum ada data</td></tr>}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {!rows.length && (
+              <tr><td colSpan={4} className="py-3 px-2 text-gray-500">Belum ada data</td></tr>
+            )}
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b last:border-0">
+                <td className="py-2 px-2">{r.nama_bahan}</td>
+                <td className="py-2 px-2">{r.satuan || "-"}</td>
+                <td className="py-2 px-2">{r.harga != null ? rupiah(Number(r.harga)) : "-"}</td>
+                <td className="py-2 px-2">
+                  {/* Delete disembunyikan jika BE belum siap */}
+                  <button
+                    onClick={() => alert("Hapus belum diaktifkan oleh BE")}
+                    className="rounded-md border px-2 py-1 text-xs text-gray-600"
+                  >
+                    Hapus
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="py-2 px-2 text-gray-500" colSpan={4}>Total: {total}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }

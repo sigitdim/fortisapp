@@ -1,37 +1,29 @@
-import { OWNER_ID, buildHeaders, putJson, postJson } from '@/lib/api';
+import { apiPut, apiPost } from "./api";
 
 /**
- * Update harga jual manual yang diedit user.
- * - Percobaan 1: PUT /api/produk/:id { harga_jual_user }
- * - Fallback: POST /api/pricing/apply { produk_id, harga_jual_user }
+ * Update harga jual produk.
+ * Bisa dipanggil dua cara:
+ *   updateHargaJual(produkId, val)
+ *   updateHargaJual({ produk_id, harga_jual })
  */
-export async function updateHargaJual(produkId: string, hargaBaru: number) {
-  // Coba endpoint produk dulu
+export async function updateHargaJual(a: any, b?: any) {
+  let payload: any;
+
+  if (b !== undefined) {
+    // dipanggil sebagai updateHargaJual(id, val)
+    payload = { produk_id: a, harga_jual: b };
+  } else if (typeof a === "object") {
+    // dipanggil sebagai updateHargaJual({ produk_id, harga_jual })
+    payload = a;
+  } else {
+    throw new Error("updateHargaJual: invalid arguments");
+  }
+
   try {
-    return await putJson<any>(`/api/produk/${produkId}`, {
-      harga_jual_user: hargaBaru,
-    });
-  } catch (err) {
-    // Fallback ke pricing/apply jika endpoint produk tidak tersedia
-    return await postJson<any>(`/api/pricing/apply`, {
-      produk_id: produkId,
-      harga_jual_user: hargaBaru,
-    });
+    return await apiPut("/pricing/update-harga", payload);
+  } catch {
+    return await apiPost("/pricing/update-harga", payload);
   }
 }
 
-/** Optional: helper fetcher kalau nanti dibutuhkan di komponen HPP lain */
-export async function getHargaRekomendasi(produkId: string) {
-  const res = await fetch(`/api/pricing/suggest?produk_id=${encodeURIComponent(produkId)}`, {
-    method: 'GET',
-    headers: buildHeaders(),
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} ${res.statusText}${t ? `: ${t}` : ''}`);
-  }
-  return (await res.json()) as unknown;
-}
-
-export default { updateHargaJual, getHargaRekomendasi };
+export default { updateHargaJual };
