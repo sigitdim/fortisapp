@@ -28,16 +28,31 @@ const promoChildren: Item[] = [
 ];
 
 const setupChildren: Item[] = [
-  { label: "Bahan",        href: "/setup/bahan",        icon: <Settings className="h-5 w-5" /> },
-  { label: "Overhead",     href: "/setup/overhead",     icon: <Settings className="h-5 w-5" /> },
-  { label: "Tenaga Kerja", href: "/setup/tenaga-kerja", icon: <Settings className="h-5 w-5" /> },
-  { label: "Aset",         href: "/setup/aset",         icon: <Settings className="h-5 w-5" /> },
-  { label: "BOM/HPP",      href: "/setup/bom-hpp",      icon: <Settings className="h-5 w-5" /> },
+  {
+    label: "Bahan",
+    href: "/setup/bahan",            
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Overhead",
+    href: "/setup/overhead",
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Tenaga Kerja",
+    href: "/setup/tenaga-kerja",
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Aset",
+    href: "/setup/aset",
+icon: <Settings className="h-5 w-5" />,
+  },
 ];
 
 function isActive(pathname: string | null, href: string, exact = false) {
   if (!pathname) return false;
-  const clean = (s: string) => (s.endsWith("/") && s !== "/" ? s.slice(0, -1) : s);
+const clean = (s: string) => (s.endsWith("/") && s !== "/" ? s.slice(0, -1) : s);
   const p = clean(pathname);
   const h = clean(href);
   return exact ? p === h : p === h || p.startsWith(h + "/");
@@ -130,12 +145,15 @@ export default function Sidebar() {
 
           {/* Setup (selalu expand) */}
           <div className="px-1">
-            <Link href="/setup" prefetch={false} className={[baseItem, idleItem].join(" ")}>
-              <span className="grid h-6 w-6 place-items-center rounded-md bg-neutral-200">
-                <Settings className="h-5 w-5" />
-              </span>
-              Setup
-            </Link>
+<Link
+  href="/setup/bahan"
+  prefetch={false}
+  className={[baseItem, idleItem].join(" ")}
+>
+  <Settings className="h-5 w-5" /> 
+  <span className="truncate">Setup</span>
+</Link>
+
             <div className="mb-1 ml-10 mt-2 space-y-2">
               {setupChildren.map((s) => (
                 <Link

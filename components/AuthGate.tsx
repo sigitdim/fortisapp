@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
@@ -8,8 +9,21 @@ export default function AuthGate() {
   const pathname = usePathname() || "/";
   const [checked, setChecked] = useState(false);
 
-  const isPublic =
-    pathname === "/login" || pathname === "/reset-password" || pathname.startsWith("/api");
+  // ✅ Tambah daftar route publik yang boleh tanpa login
+  const PUBLIC_PATHS = [
+    "/login",
+    "/register",
+    "/auth",
+    "/reset-password",
+    "/reset-password/update",
+    "/reset-password/confirm",
+    "/_next",
+    "/api",
+    "/"
+  ];
+
+  // Jika path cocok dengan salah satu PUBLIC_PATHS
+  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     let unsub = () => {};
@@ -22,14 +36,16 @@ export default function AuthGate() {
       }
 
       // keep token fresh
-      const { data: sub } = supabase.auth.onAuthStateChange(() => {});
+      const { data: sub } = supabase.auth.onAuthStateChange(() => {
+        ensureSessionOrRedirect();
+      });
       unsub = () => sub.subscription.unsubscribe();
 
-      // 1st check
+      // cek session pertama
       let { data } = await supabase.auth.getSession();
       let session = data.session;
 
-      // small retry (race-condition guard)
+      // retry kecil (guard race condition)
       if (!session) {
         await new Promise((r) => setTimeout(r, 250));
         ({ data } = await supabase.auth.getSession());
@@ -37,10 +53,13 @@ export default function AuthGate() {
       }
 
       if (!session) {
-        const search = typeof window !== "undefined" ? window.location.search : "";
+        const search =
+          typeof window !== "undefined" ? window.location.search : "";
         const next = pathname + (search || "");
         if (!cancelled && typeof window !== "undefined") {
-          window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+          window.location.replace(
+            `/login?next=${encodeURIComponent(next)}`
+          );
         }
         return;
       }
@@ -49,6 +68,7 @@ export default function AuthGate() {
     }
 
     ensureSessionOrRedirect();
+
     return () => {
       cancelled = true;
       unsub();

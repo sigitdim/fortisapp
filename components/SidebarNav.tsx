@@ -1,151 +1,161 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutGrid,
+  LayoutDashboard,
   Calculator,
-  BookOpen,
-  Percent,
-  PackagePlus,
-  Gift,
-  BadgePercent,
   Boxes,
+  PercentCircle,
+  LineChart,
   Settings,
-  GraduationCap,
+  FileText,
+  User,
+  Menu,
+  X,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-type NavItemProps = {
-  href: string;
-  icon: any;
-  label: string;
-  active?: boolean;
-  small?: boolean;
-};
+const NAV_ITEMS = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Kalkulator HPP", href: "/hpp", icon: Calculator },
+  { label: "Promo", href: "/promo", icon: PercentCircle },
+  { label: "Inventory", href: "/inventory", icon: Boxes },
+  { label: "Laporan", href: "/report", icon: LineChart },
+];
 
-/* ========== Komponen NavItem ========== */
-function NavItem({ href, icon: Icon, label, active, small }: NavItemProps) {
-  return (
-    <Link
-      href={href}
-      className={`flex items-center gap-3 rounded-full transition-all duration-150 ${
-        small ? "px-3 py-1.5 text-[14px]" : "px-4 py-2 text-[15px]"
-      } ${
-        active
-          ? "bg-[#FFD74A] font-semibold text-black shadow-md"
-          : "text-zinc-800 hover:bg-zinc-100"
-      }`}
-    >
-      <Icon
-        className={`${small ? "w-4 h-4" : "w-5 h-5"} ${
-          active ? "text-black" : "text-zinc-600"
-        }`}
-      />
-      <span>{label}</span>
-    </Link>
-  );
-}
+const STORAGE_KEY = "fortisapp-sidebar-collapsed";
 
-/* ========== Komponen Sidebar ========== */
 export default function SidebarNav() {
-  const pathname = usePathname() ?? "";
-  const isActive = (p: string) => pathname === p || pathname.startsWith(p + "/");
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === "true") setCollapsed(true);
+    setMounted(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (mounted) localStorage.setItem(STORAGE_KEY, collapsed ? "true" : "false");
+  }, [collapsed, mounted]);
+
+  const safePath = pathname || "";
 
   return (
-    <aside className="w-[260px] shrink-0 bg-white flex flex-col border-r border-zinc-200">
-      {/* ===== BRAND ===== */}
-      <div className="px-6 pt-6 pb-4 text-2xl font-extrabold tracking-tight select-none">
-        <span className="text-neutral-900">Fortis</span>
-        <span className="text-red-600">App</span>
+    <aside
+      className={cn(
+        "fixed left-0 top-0 z-40 flex h-screen flex-col justify-between bg-white border-r border-gray-100 transition-all duration-300 shadow-sm",
+        collapsed ? "w-[80px]" : "w-64"
+      )}
+    >
+      {/* HEADER */}
+      <div className="flex items-center justify-between px-4 h-16 border-b border-gray-100">
+        {!collapsed && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold text-black">Fortis</span>
+              <span className="text-xl font-bold text-red-600">App</span>
+            </div>
+            <button
+              onClick={() => setCollapsed(true)}
+              className="flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </>
+        )}
+        {collapsed && (
+          <button
+            onClick={() => setCollapsed(false)}
+            className="flex items-center justify-center rounded-md p-2 text-black hover:bg-gray-100"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
-      {/* ===== MAIN NAV ===== */}
-      <nav className="flex-1 px-3 space-y-2 text-[15px]">
-        <NavItem
-          href="/dashboard"
-          icon={LayoutGrid}
-          label="Dashboard"
-          active={isActive("/dashboard")}
-        />
-        <NavItem
-          href="/hpp"
-          icon={Calculator}
-          label="Kalkulator HPP"
-          active={isActive("/hpp")}
-        />
-        <NavItem
-          href="/menu"
-          icon={BookOpen}
-          label="Daftar Menu"
-          active={isActive("/menu")}
-        />
+      {/* NAV */}
+      <nav
+        className={cn(
+          "flex-1 flex flex-col transition-all duration-300",
+          collapsed ? "items-center gap-6 mt-2" : "px-3 gap-1 mt-4"
+        )}
+      >
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const active =
+            safePath === item.href ||
+            (item.href !== "/dashboard" && safePath.startsWith(item.href + "/"));
 
-        {/* PROMO */}
-        <div className="px-3 pt-2 text-[15px] font-semibold text-zinc-800">
-          Kalkulator Promo
-        </div>
-        <div className="mt-1 pl-6 flex flex-col space-y-1 text-[14px]">
-          <NavItem
-            href="/promo/diskon"
-            icon={Percent}
-            label="Kalkulator Diskon"
-            active={isActive("/promo/diskon")}
-            small
-          />
-          <NavItem
-            href="/promo/bundling"
-            icon={PackagePlus}
-            label="Kalkulator Bundling"
-            active={isActive("/promo/bundling")}
-            small
-          />
-          <NavItem
-            href="/promo/b1g1"
-            icon={Gift}
-            label="Kalkulator Buy 1 Get 1"
-            active={isActive("/promo/b1g1")}
-            small
-          />
-          <NavItem
-            href="/promo/tebus"
-            icon={BadgePercent}
-            label="Kalkulator Tebus Murah"
-            active={isActive("/promo/tebus")}
-            small
-          />
-        </div>
-
-        {/* INVENTORY */}
-        <NavItem
-          href="/inventory"
-          icon={Boxes}
-          label="Inventory"
-          active={isActive("/inventory")}
-        />
-
-        {/* SETUP */}
-        <NavItem
-          href="/setup"
-          icon={Settings}
-          label="Setup"
-          active={isActive("/setup")}
-        />
-
-        {/* TUTORIAL */}
-        <NavItem
-          href="/tutorial"
-          icon={GraduationCap}
-          label="Tutorial"
-          active={isActive("/tutorial")}
-        />
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                collapsed
+                  ? "h-10 w-10 justify-center"
+                  : "px-3 py-2 gap-3",
+                active
+                  ? "bg-yellow-400 text-black"
+                  : "text-gray-800 hover:bg-gray-100"
+              )}
+            >
+              <Icon className="h-5 w-5" />
+              {!collapsed && <span>{item.label}</span>}
+            </Link>
+          );
+        })}
       </nav>
 
-      {/* ===== BADGE USER ===== */}
-      <div className="p-4">
-        <div className="rounded-2xl bg-red-700 text-white px-4 py-3 shadow-inner">
-          <div className="text-sm font-medium">Yudha | Pro</div>
-          <div className="text-[12px] opacity-90">Active until 27-03-26</div>
-        </div>
+      {/* FOOTER */}
+      <div
+        className={cn(
+          "flex flex-col items-center gap-4 pb-6 border-t border-gray-100 pt-4 transition-all duration-300",
+          collapsed ? "" : "px-3"
+        )}
+      >
+        <button
+          type="button"
+          className={cn(
+            "flex items-center justify-center rounded-full transition-all duration-200",
+            collapsed
+              ? "h-8 w-8 bg-white border border-gray-300 text-black hover:bg-gray-100"
+              : "h-9 w-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+          )}
+        >
+          <Settings className="h-4 w-4" />
+          {!collapsed && <span className="ml-2 text-sm font-medium">Setup</span>}
+        </button>
+
+        <Link
+          href="/tutorial"
+          className={cn(
+            "flex items-center justify-center rounded-full shadow transition-all duration-200",
+            collapsed
+              ? "h-11 w-11 bg-yellow-400 text-black"
+              : "h-10 w-full bg-yellow-400 text-black font-semibold"
+          )}
+        >
+          <FileText className="h-5 w-5" />
+          {!collapsed && <span className="ml-2 text-sm">Tutorial</span>}
+        </Link>
+
+        <Link
+          href="/settings"
+          className={cn(
+            "flex items-center justify-center rounded-full shadow transition-all duration-200",
+            collapsed
+              ? "h-11 w-11 bg-red-600 text-white"
+              : "h-10 w-full bg-red-600 text-white font-semibold"
+          )}
+        >
+          <User className="h-5 w-5" />
+          {!collapsed && <span className="ml-2 text-sm">Yudha | Pro</span>}
+        </Link>
       </div>
     </aside>
   );

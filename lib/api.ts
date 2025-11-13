@@ -1,6 +1,10 @@
 type ApiOptions = RequestInit & { asJson?: boolean };
 type AnyObj = Record<string, any>;
 
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id"
+).replace(/\/+$/, "");
+
 /* ===== owner id reader (works in browser, safe on server) ===== */
 function readOwnerId(): string {
   try {
@@ -24,10 +28,11 @@ export function buildHeaders(extra?: HeadersInit): HeadersInit {
   return { ...(base as any), ...(extra as any) };
 }
 
-/* ===== legacy: api (uses FE proxy /api/...) ===== */
+/* ===== legacy: api (NO MORE FE proxy, direct to BE) ===== */
 export async function api(path: string, opts: ApiOptions = {}) {
   const { asJson = false, headers, ...rest } = opts;
-  const url = `/api${path.startsWith("/") ? path : `/${path}`}`;
+  const pathPart = path.startsWith("/") ? path : `/${path}`;
+  const url = `${API_BASE}${pathPart}`;
   const res = await fetch(url, { ...rest, headers: buildHeaders(headers) });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -37,20 +42,44 @@ export async function api(path: string, opts: ApiOptions = {}) {
 }
 
 /* ===== legacy: getJson/apiGet/apiPost/... (loose types) ===== */
-export async function getJson<T = any>(path: string, init?: RequestInit): Promise<T> {
-  return api(path, { method: "GET", asJson: true, ...(init || {}) }) as Promise<T>;
+export async function getJson<T = any>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  return api(path, { method: "GET", asJson: true, ...(init || {}) });
 }
-export async function apiGet<T = any>(path: string, init?: RequestInit): Promise<T> {
+export async function apiGet<T = any>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
   return getJson<T>(path, init);
 }
-export async function apiPost<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
-  return api(path, { method: "POST", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
+export async function apiPost<T = any>(
+  path: string,
+  body?: any
+): Promise<T> {
+  return api(path, {
+    method: "POST",
+    body: body == null ? undefined : JSON.stringify(body),
+    asJson: true,
+  });
 }
-export async function apiPut<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
-  return api(path, { method: "PUT", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
+export async function apiPut<T = any>(path: string, body?: any): Promise<T> {
+  return api(path, {
+    method: "PUT",
+    body: body == null ? undefined : JSON.stringify(body),
+    asJson: true,
+  });
 }
-export async function apiDelete<T = any>(path: string, body?: any, init?: RequestInit): Promise<T> {
-  return api(path, { method: "DELETE", body: body==null? undefined: JSON.stringify(body), asJson: true, ...(init||{}) }) as Promise<T>;
+export async function apiDelete<T = any>(
+  path: string,
+  body?: any
+): Promise<T> {
+  return api(path, {
+    method: "DELETE",
+    body: body == null ? undefined : JSON.stringify(body),
+    asJson: true,
+  });
 }
 
 /* ===== new alias kept for convenience ===== */

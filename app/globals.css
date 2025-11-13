@@ -1,53 +1,228 @@
+/* ===== 1) Google Fonts harus di paling atas (hindari warning) ===== */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+
+/* ===== 2) Tailwind ===== */
 @import "tailwindcss";
 
-body {
-  /* contoh style global */
-  @apply bg-gray-50 text-gray-800;
+/* ================= Base & Tokens ================= */
+@layer base {
+  :root {
+    /* Versi Figma (auth card 28px) + token lain yang kita pakai */
+    --fortis-card-radius: 28px;
+    --fortis-field-radius: 14px;
+    --fortis-btn-radius: 14px;
+    --fortis-card-shadow: 0 10px 30px rgba(2, 6, 23, 0.06), 0 2px 10px rgba(2, 6, 23, 0.04);
+
+    --fortis-red: #b91c1c;         /* red-700 feel */
+    --fortis-red-hover: #991b1b;   /* red-800 feel */
+    --fortis-text-strong: #0f172a; /* slate-900 */
+    --fortis-text-muted: #475569;  /* slate-600 */
+    --fortis-input-border: #e2e8f0;/* slate-200 */
+    --fortis-input-focus: #fca5a5; /* red-300-ish ring */
+  }
+
+  html, body, #__next { height: 100%; }
+
+  body {
+    @apply bg-gray-50 text-gray-800;
+    font-family: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+      "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    letter-spacing: 0.1px;
+  }
 }
-/* ===== Fortis: hide chrome for public auth pages ===== */
+
+/* ================= Reusable Components (umum) ================= */
+@layer components {
+  .fortis-card { border-radius: var(--fortis-card-radius); box-shadow: var(--fortis-card-shadow); @apply bg-white; }
+  .fortis-input { border-radius: var(--fortis-field-radius); @apply bg-white placeholder:text-gray-400 focus:outline-none; }
+  .fortis-btn { border-radius: var(--fortis-btn-radius); @apply inline-flex items-center justify-center transition focus:outline-none; }
+  .page-root { min-height: 100vh; @apply flex items-center justify-center; }
+}
+
+/* ================= Hide chrome untuk halaman autentikasi ================= */
 html.hide-chrome [data-fortis-sidebar],
-html.hide-chrome [data-fortis-header] {
-  display: none !important;
+html.hide-chrome [data-fortis-header] { display: none !important; }
+
+html.hide-chrome .page-root { min-height: 100vh; align-items: center; justify-content: center; }
+
+html.hide-chrome main { padding: 0 !important; max-width: 720px; margin: 0 auto; }
+
+/* ================= Fortis: Auth UI polish (sesuai Figma) ================= */
+
+/* 3) Permukaan auth (gradasi halus) */
+.fortis-auth-surface {
+  background:
+    radial-gradient(1200px 400px at 50% -100px, rgba(185, 28, 28, 0.04), transparent 70%),
+    radial-gradient(800px 300px at 50% 100%, rgba(15, 23, 42, 0.035), transparent 60%);
 }
-html.hide-chrome .page-root {
-  /* Pusatkan kartu login */
-  min-height: 100vh;
+
+/* 4) Kartu auth */
+.fortis-auth-card {
+  background: #fff;
+  border-radius: var(--fortis-card-radius);
+  box-shadow: var(--fortis-card-shadow);
+  padding: clamp(24px, 3.8vw, 40px);
+  width: min(720px, 92vw);
+  margin-inline: auto;
+}
+
+/* 5) Tipografi */
+.fortis-auth-title {
+  color: var(--fortis-text-strong);
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  font-size: clamp(26px, 3.6vw, 40px);
+  margin: 4px 0 18px;
+}
+.fortis-auth-desc {
+  color: var(--fortis-text-muted);
+  text-align: center;
+  line-height: 1.7;
+  font-size: clamp(14px, 1.7vw, 18px);
+  max-width: 820px;
+  margin: 0 auto 22px;
+}
+
+/* 6) Input */
+.fortis-auth-input {
+  height: 56px;
+  border-radius: var(--fortis-field-radius);
+  border: 2px solid var(--fortis-input-border);
+  background: #fff;
+  padding: 0 18px;
+  font-size: 16px;
+  outline: none;
+  width: 100%;
+  transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
+}
+.fortis-auth-input::placeholder { color: #94a3b8; } /* slate-400 */
+.fortis-auth-input:focus {
+  border-color: var(--fortis-red);
+  box-shadow: 0 0 0 4px var(--fortis-input-focus);
+}
+
+/* 7) Tombol utama */
+.fortis-auth-btn {
+  height: 56px;
+  border-radius: var(--fortis-btn-radius);
+  background: var(--fortis-red);
+  color: #fff;
+  font-weight: 600;
+  font-size: 16px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  border: none;
+  outline: none;
+  transition: background .15s ease, transform .02s ease;
 }
-html.hide-chrome main {
-  /* Hilangkan padding besar saat login */
-  padding: 0 !important;
+.fortis-auth-btn:hover { background: var(--fortis-red-hover); }
+.fortis-auth-btn:active { transform: translateY(1px); }
+.fortis-auth-btn:disabled { opacity: .65; cursor: not-allowed; }
+
+/* 8) Link sekunder */
+.fortis-auth-link { color: var(--fortis-red); font-weight: 500; text-decoration: none; }
+.fortis-auth-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* 9) Baris aksi di bawah tombol (timer + resend) */
+.fortis-auth-subnote { color: var(--fortis-text-muted); font-size: 14px; text-align: center; }
+
+/* 10) Icon eye pada input password */
+.fortis-input-icon {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  color: #64748b; cursor: pointer; /* slate-500 */
 }
-/* ===== FortisAuth (SAFE) — CSS BEGIN FortisAuth ===== */
-html.hide-chrome [data-fortis-sidebar],
-html.hide-chrome [data-fortis-header] {
-  display: none !important;
-}
-html.hide-chrome .page-root {
+
+/* Spacing container halaman auth (centered) */
+.fortis-auth-container {
   min-height: 100vh;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 3vw, 32px);
 }
-html.hide-chrome main {
-  padding: 0 !important;
-  max-width: 720px;
-  margin: 0 auto;
+
+/* === Flatten hero background di halaman auth === */
+html.hide-chrome .fortis-auth-surface{
+  background: transparent !important;   /* buang radial gradients */
+  background-color: transparent !important;
 }
-/* ===== FortisAuth — CSS END FortisAuth ===== */
-/* ===== FortisAuth (SAFE) — CSS BEGIN FortisAuth ===== */
-html.hide-chrome [data-fortis-sidebar],
-html.hide-chrome [data-fortis-header] {
-  display: none !important;
+
+/* kalau masih keliatan samar, sedikit terangkan body di auth */
+html.hide-chrome body{
+  background-color: #f8fafc !important; /* very light */
 }
-html.hide-chrome .page-root {
-  min-height: 100vh;
-  align-items: center;
-  justify-content: center;
+
+/* jaga card tetap clean, tanpa glow berlebihan di sekitar judul */
+html.hide-chrome .fortis-auth-card{
+  box-shadow: 0 8px 24px rgba(2,6,23,.04), 0 2px 8px rgba(2,6,23,.03) !important;
 }
-html.hide-chrome main {
-  padding: 0 !important;
-  max-width: 720px;
-  margin: 0 auto;
+
+/* ===== Kill all auth hero gradients (super override) ===== */
+:where(html.hide-chrome) :where(.fortis-auth-surface),
+:where(html.hide-chrome) :where(.fortis-auth-surface)::before,
+:where(html.hide-chrome) :where(.fortis-auth-surface)::after {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  filter: none !important;
 }
-/* ===== FortisAuth — CSS END FortisAuth ===== */
+
+/* fallback: ratain area di sekitar hero supaya benar-benar flat */
+html.hide-chrome body { background-color: #f8fafc !important; } /* slate-50 */
+
+/* kalau wrapper card kebagian glow dari style lama, lembutkan */
+html.hide-chrome .fortis-auth-card {
+  box-shadow: 0 6px 20px rgba(2,6,23,.04), 0 1px 6px rgba(2,6,23,.03) !important;
+}
+
+/* === FortisAuth override: bersihkan gradasi gelap di auth surface === */
+.fortis-auth-surface{ 
+  background:#f7f7f7 !important; /* putih bersih sesuai Figma */
+}
+
+/* (opsional) glow merah tipis di atas, tanpa band abu-abu */
+.fortis-auth-surface.is-top-glow{
+  background:
+    radial-gradient(1100px 360px at 50% -120px, rgba(185,28,28,.03), transparent 65%),
+    #f7f7f7 !important;
+}
+/* === Fix: surface 100% putih sesuai Figma === */
+.fortis-auth-surface{
+  background:#ffffff !important; /* pure white */
+}
+
+/* === Fix: input ada ikon kiri, tambahkan padding agar tidak tabrakan === */
+.fortis-input-with-icon{ position:relative; }
+.fortis-input-icon-left{
+  position:absolute; left:14px; top:50%; transform:translateY(-50%);
+  color:#94a3b8; /* slate-400 */
+  pointer-events:none;
+}
+.fortis-auth-input.has-icon{ padding-left:44px; } /* ruang buat ikon kiri */
+/* ===== FortisAuth clean surface (no gradient) ===== */
+.fortis-auth-surface--clean {
+  background: #f7f7f7; /* sangat tipis seperti figma */
+}
+/* === Sidebar hardening (hilangkan bullet/indent) === */
+aside[role="navigation"] ul,
+aside[role="navigation"] li {
+  list-style: none !important;
+  margin: 0 !important;
+  padding-left: 0 !important;
+}
+/* ==== Sidebar nav: matikan bullet/marker di semua list ==== */
+.sidebar-nav ul,
+.sidebar-nav li {
+  list-style: none !important;
+  margin: 0;
+  padding-left: 0;
+}
+
+/* beberapa framework pakai ::marker / ::before buat bullet, matikan juga */
+.sidebar-nav li::marker,
+.sidebar-nav li::before {
+  content: "" !important;
+}

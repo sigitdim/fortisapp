@@ -200,3 +200,4 @@ export function InventoryWidget(){
     </div>
   );
 }
+export default InventoryWidget;

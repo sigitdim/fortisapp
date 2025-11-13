@@ -33,9 +33,22 @@ async function proxy(method: string, req: Request, ctx: any) {
   return new NextResponse(text, { status: upstream.status, headers: { "content-type": ct } });
 }
 
-export async function GET(req: Request, ctx: any)    { return proxy("GET", req, ctx); }
-export async function POST(req: Request, ctx: any)   { return proxy("POST", req, ctx); }
-export async function PUT(req: Request, ctx: any)    { return proxy("PUT", req, ctx); }
-export async function PATCH(req: Request, ctx: any)  { return proxy("PATCH", req, ctx); }
-export async function DELETE(req: Request, ctx: any) { return proxy("DELETE", req, ctx); }
-export async function OPTIONS(req: Request, ctx: any){ return proxy("OPTIONS", req, ctx); }
+// ====== Exported handlers ======
+export async function GET(req: Request, ctx: any) {
+  return proxy("GET", req, ctx);
+}
+export async function POST(req: Request, ctx: any) {
+  return proxy("POST", req, ctx);
+}
+export async function PUT(req: Request, ctx: any) {
+  return proxy("PUT", req, ctx);
+}
+export async function PATCH(req: Request, ctx: any) {
+  return proxy("PATCH", req, ctx);
+}
+export async function DELETE(req: Request, ctx: any) {
+  return proxy("DELETE", req, ctx);
+}
+export async function OPTIONS(req: Request, ctx: any) {
+  return proxy("OPTIONS", req, ctx);
+}

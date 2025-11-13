@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 
 type Bahan = { id: string; nama_bahan: string; satuan?: string; harga?: number };
 

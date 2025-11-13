@@ -1,0 +1,69 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/app/lib/api";
+import { rupiah } from "@/lib/format";
+
+type HppRow = {
+  nama_bahan: string;
+  qty: number;
+  satuan: string;
+  harga_satuan: number;
+  subtotal: number;
+};
+
+export default function HppCalculator() {
+  const [data, setData] = useState<HppRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const res = await api("/report/hpp");
+        if (res.ok && res.data) setData(res.data);
+      } catch (e) {
+        console.error("Gagal ambil data HPP:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  if (loading) return <div className="p-4">Memuat data HPP...</div>;
+
+  return (
+    <div className="p-4 space-y-4">
+      <h2 className="text-lg font-semibold text-neutral-800">Kalkulator HPP</h2>
+      <div className="border rounded-xl overflow-hidden shadow-sm">
+        <table className="w-full text-sm border-collapse">
+          <thead className="bg-neutral-100 text-neutral-700">
+            <tr>
+              <th className="p-2 text-left">Bahan</th>
+              <th className="p-2 text-right">Qty</th>
+              <th className="p-2 text-left">Satuan</th>
+              <th className="p-2 text-right">Harga</th>
+              <th className="p-2 text-right">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((r, i) => (
+              <tr key={i} className="border-t">
+                <td className="p-2">{r.nama_bahan}</td>
+                <td className="p-2 text-right">{r.qty}</td>
+                <td className="p-2">{r.satuan}</td>
+
+<td className="p-2 text-right">
+  {rupiah(r?.harga_satuan)}
+</td>
+<td className="p-2 text-right">
+  {rupiah(r?.subtotal)}
+</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
