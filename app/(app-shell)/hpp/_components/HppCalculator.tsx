@@ -1,418 +1,793 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { rupiah } from "@/lib/format";
+import React, { useEffect, useMemo, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import SuccessToast from "@/components/SuccessToast";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const DEFAULT_OWNER_ID =
-  process.env.NEXT_PUBLIC_OWNER_ID || "f6269e9a-bc6d-4f8b-aa45-08affc769e5a";
+/* ========= config ========= */
 
-/** ====== TYPES ====== */
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
+const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
+
+/* ========= types & utils ========= */
+
 type Bahan = {
   id: string;
-  nama_bahan: string;
-  satuan?: string | null;
-  harga?: number | null; // harga per satuan (server)
+  nama: string;
+  satuan: string;
+  harga_per_satuan: number;
 };
 
 type Row = {
   id: string;
-  bahan_id?: string | null;
-  nama?: string;
-  unit?: string;
+  bahanId: string | null;
   qty: number;
-  hargaPerUnit?: number;
-  harga?: number;
+  unit: string;
+  subtotal: number;
 };
 
-/** ====== CONST ====== */
-const UNITS = ["gram", "ml", "pcs"] as const;
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+type HppConfig = {
+  overhead_per_porsi: number;
+  total_overhead_bulanan: number;
+};
 
-/** ====== OWNER HELPERS ====== */
-function getOwnerId(): string {
+function rupiah(n: number | string | null | undefined) {
+  const x = typeof n === "string" ? Number(n) : n ?? 0;
   try {
-    return (
-      (typeof window !== "undefined" && (localStorage.getItem("owner_id") || sessionStorage.getItem("owner_id"))) ||
-      DEFAULT_OWNER_ID ||
-      ""
-    );
+    return x.toLocaleString("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      maximumFractionDigits: 0,
+    });
   } catch {
-    return DEFAULT_OWNER_ID || "";
+    return `Rp ${x || 0}`;
   }
 }
 
-export default function HppCalculator() {
-  /** ====== OWNER ====== */
-  const [ownerId, setOwnerId] = useState<string>("");
+async function callApi(
+  path: string,
+  options: RequestInit & { asJson?: boolean } = {}
+): Promise<any> {
+  const { asJson = true, headers, ...rest } = options;
+  const url = `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 
-  useEffect(() => {
-    const id = getOwnerId();
-    setOwnerId(id);
-  }, []);
+  const mergedHeaders: HeadersInit = {
+    "Content-Type": "application/json",
+    "x-owner-id": OWNER_ID,
+    ...(headers || {}),
+  };
 
-  useEffect(() => {
-    if (!ownerId) return;
-    try {
-      localStorage.setItem("owner_id", ownerId);
-    } catch {}
-  }, [ownerId]);
+  const res = await fetch(url, {
+    ...rest,
+    headers: mergedHeaders,
+    cache: "no-store",
+  });
 
-  /** ====== STATE ====== */
-  const [bahanList, setBahanList] = useState<Bahan[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ ok?: string; err?: string } | null>(null);
-
-  const [namaMenu, setNamaMenu] = useState("");
-  const [rows, setRows] = useState<Row[]>([{ id: uid(), nama: "", unit: "gram", qty: 0, harga: 0 }]);
-
-  const [overhead, setOverhead] = useState<number>(4200);
-  const [targetHarga, setTargetHarga] = useState<number>(18000);
-  const [ppn, setPpn] = useState(false);
-  const [fee, setFee] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  /** ====== FETCH /setup/bahan ====== */
-  async function loadBahan() {
-    setLoading(true);
-    setMsg(null);
-    try {
-      const hdr = ownerId || DEFAULT_OWNER_ID;
-      const res = await fetch(`${API_BASE}/setup/bahan`, {
-        headers: { "x-owner-id": hdr, "Content-Type": "application/json" },
-        cache: "no-store",
-      });
-
-      const text = await res.text();
-      let json: any;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = text;
-      }
-
-      const raw = Array.isArray(json) ? json : json?.data ?? [];
-      const data: Bahan[] = (raw as any[]).map((x: any) => ({
-        id: String(x.id ?? x.bahan_id ?? ""),
-        nama_bahan: String(x.nama_bahan ?? x.nama ?? ""),
-        satuan: String(x.satuan ?? x.unit ?? ""),
-        // fallback harga: prioritaskan x.harga; jika tidak ada, coba harga_beli/price
-        harga: Number(x.harga ?? x.harga_beli ?? x.price ?? 0),
-      }));
-
-      setBahanList(data);
-      if (!data.length) setMsg({ err: "Data bahan kosong. Cek Owner ID / BE." });
-    } catch (e: any) {
-      setMsg({ err: e?.message || "Gagal memuat bahan." });
-      setBahanList([]);
-    } finally {
-      setLoading(false);
-    }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
   }
 
+  return asJson ? res.json() : res;
+}
+
+function cleanErrorMessage(raw: string): string {
+  let msg = raw || "";
+  msg = msg.replace(/<[^>]+>/g, "");
+  msg = msg.replace(/^Error\s*/i, "");
+  return msg.trim();
+}
+
+function makeRow(): Row {
+  return {
+    id: crypto.randomUUID(),
+    bahanId: null,
+    qty: 0,
+    unit: "-",
+    subtotal: 0,
+  };
+}
+
+/* ========= component ========= */
+
+type Tier = "kompetitif" | "standar" | "premium";
+
+export default function HppCalculator() {
+  const [namaMenu, setNamaMenu] = useState("");
+  const [rows, setRows] = useState<Row[]>([
+    makeRow(),
+    makeRow(),
+    makeRow(),
+    makeRow(),
+  ]);
+  const [bahanOptions, setBahanOptions] = useState<Bahan[]>([]);
+  const [hppConfig, setHppConfig] = useState<HppConfig | null>(null);
+
+  const [loadingBahan, setLoadingBahan] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [notice, setNotice] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Target harga jual & AI suggestion
+  const [targetHarga, setTargetHarga] = useState<string>("15000");
+  const [aiHargaKompetitif, setAiHargaKompetitif] = useState<number | null>(
+    null
+  );
+  const [aiHargaStandar, setAiHargaStandar] = useState<number | null>(null);
+  const [aiHargaPremium, setAiHargaPremium] = useState<number | null>(null);
+  const [selectedTier, setSelectedTier] = useState<Tier | null>("standar");
+
+  // checkbox pajak & fee channel
+  const [includePajak, setIncludePajak] = useState(false);
+  const [includeChannel, setIncludeChannel] = useState(false);
+
   useEffect(() => {
-    if (ownerId) loadBahan();
-  }, [ownerId]);
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 2400);
+    return () => clearTimeout(t);
+  }, [notice]);
 
-  /** ====== HITUNG ====== */
-  const recalc = (r: Row): Row => {
-    const harga = Math.max(0, Math.round((r.hargaPerUnit ?? 0) * (r.qty || 0)));
-    return { ...r, harga };
-  };
+  /* ----- fetch bahan & config ----- */
 
-  const updateRow = (id: string, patch: Partial<Row>) =>
-    setRows((prev) => prev.map((r) => (r.id === id ? recalc({ ...r, ...patch }) : r)));
+  useEffect(() => {
+    async function fetchBahan() {
+      setLoadingBahan(true);
+      setErrorMsg(null);
+      try {
+        const res = await callApi("/setup/bahan", { method: "GET" });
 
-  const addRow = () =>
-    setRows((prev) => [...prev, { id: uid(), nama: "", unit: "gram", qty: 0, harga: 0 }]);
+        const raw = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res)
+          ? res
+          : [];
 
-  const delRow = (id: string) =>
-    setRows((prev) => (prev.length === 1 ? prev : prev.filter((r) => r.id !== id)));
+        const mapped: Bahan[] = raw.map((x: any, idx: number) => {
+          // harga & volume yang dikirim BE
+          const hargaRaw =
+            typeof x.harga === "number" ? x.harga : Number(x.harga ?? 0);
 
-  const pickBahan = (rowId: string, bahanId: string) => {
-    const b = bahanList.find((x) => x.id === bahanId);
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === rowId
-          ? recalc({
-              ...r,
-              bahan_id: b?.id,
-              nama: b?.nama_bahan || "",
-              unit: b?.satuan || "gram",
-              hargaPerUnit: Number(b?.harga || 0),
-            })
-          : r
-      )
-    );
-  };
+          const volumeRaw =
+            typeof x.volume === "number"
+              ? x.volume
+              : Number(
+                  x.volume ??
+                    x.purchase_qty ??
+                    x.qty_volume ??
+                    x.qty ??
+                    0
+                );
+
+          const hargaPerSatuanFromBE =
+            typeof x.harga_per_satuan === "number"
+              ? x.harga_per_satuan
+              : Number(x.harga_per_satuan ?? 0);
+
+          let harga_per_satuan = 0;
+
+          // PRIORITAS UTAMA: kalau ada harga & volume, SELALU pakai harga / volume
+          if (hargaRaw > 0 && volumeRaw > 0) {
+            harga_per_satuan = hargaRaw / volumeRaw;
+          } else if (hargaPerSatuanFromBE > 0) {
+            // fallback: pakai harga_per_satuan dari BE
+            harga_per_satuan = hargaPerSatuanFromBE;
+          } else {
+            // fallback terakhir: anggap harga sudah per satuan
+            harga_per_satuan = hargaRaw;
+          }
+
+          return {
+            id: String(x.id ?? idx),
+            nama: x.nama_bahan ?? x.nama ?? "",
+            satuan: x.satuan ?? x.unit ?? "-",
+            harga_per_satuan,
+          };
+        });
+
+        setBahanOptions(mapped);
+      } catch (e: any) {
+        console.error("Gagal memuat bahan:", e);
+        setErrorMsg(
+          cleanErrorMessage(e?.message || "Gagal memuat daftar bahan.")
+        );
+      } finally {
+        setLoadingBahan(false);
+      }
+    }
+
+    async function fetchConfig() {
+      setLoadingConfig(true);
+      try {
+        const res = await callApi("/hpp/config", { method: "GET" });
+        if (res && res.ok) {
+          setHppConfig({
+            overhead_per_porsi: Number(res.overhead_per_porsi || 0),
+            total_overhead_bulanan: Number(res.total_overhead_bulanan || 0),
+          });
+        } else {
+          setHppConfig({
+            overhead_per_porsi: 0,
+            total_overhead_bulanan: 0,
+          });
+        }
+      } catch (e: any) {
+        console.error("Gagal memuat /hpp/config:", e);
+        // kalau error, jangan matiin halaman, cuma isi 0
+        setHppConfig({
+          overhead_per_porsi: 0,
+          total_overhead_bulanan: 0,
+        });
+      } finally {
+        setLoadingConfig(false);
+      }
+    }
+
+    fetchBahan();
+    fetchConfig();
+  }, []);
+
+  /* ----- derived: subtotal & total ----- */
+
+  const rowsWithCalc = useMemo(() => {
+    return rows.map((row) => {
+      const bahan = row.bahanId
+        ? bahanOptions.find((b) => b.id === row.bahanId)
+        : undefined;
+      const hargaSatuan = bahan?.harga_per_satuan ?? 0;
+      const subtotal = row.qty > 0 ? row.qty * hargaSatuan : 0;
+      return { ...row, subtotal, unit: bahan?.satuan ?? row.unit };
+    });
+  }, [rows, bahanOptions]);
 
   const totalBahan = useMemo(
-    () => rows.reduce((s, r) => s + Number(r.harga || 0), 0),
-    [rows]
+    () => rowsWithCalc.reduce((sum, r) => sum + (r.subtotal || 0), 0),
+    [rowsWithCalc]
   );
 
-  const totalHpp = useMemo(() => Math.max(0, totalBahan + Number(overhead || 0)), [totalBahan, overhead]);
+  const overheadPerPorsi = hppConfig?.overhead_per_porsi ?? 0;
+  const totalHpp = totalBahan + overheadPerPorsi;
 
-  // Rekomendasi tombol cepat
-  const hargaKomp = useMemo(() => Math.max(0, Math.round(totalHpp * 1.6)), [totalHpp]);
-  const hargaStd = useMemo(() => Math.max(0, Math.round(totalHpp * 1.8)), [totalHpp]);
-  const hargaPrem = useMemo(() => Math.max(0, Math.round(totalHpp * 2.2)), [totalHpp]);
+  /* ----- handlers row ----- */
 
-  const afterTax = useMemo(() => Math.round(targetHarga * (ppn ? 1.1 : 1)), [targetHarga, ppn]);
-  const online = useMemo(() => Math.round(afterTax * (fee ? 1.2006 : 1)), [afterTax, fee]); // ±20.06%
+  function updateRow(id: string, patch: Partial<Row>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
 
-  const profit = useMemo(() => Math.max(0, targetHarga - totalHpp), [targetHarga, totalHpp]);
-  const marginPct = useMemo(
-    () => (targetHarga > 0 ? Math.round((profit / targetHarga) * 100) : 0),
-    [profit, targetHarga]
-  );
+  function handleChangeBahan(rowId: string, bahanId: string) {
+    const bahan = bahanOptions.find((b) => b.id === bahanId);
+    updateRow(rowId, {
+      bahanId,
+      unit: bahan?.satuan ?? "-",
+    });
+  }
 
-  /** ====== SAVE (optional, tetap sesuai kontrak lama) ====== */
-  async function handleSave() {
-    setSaving(true);
-    setMsg(null);
+  function handleChangeQty(rowId: string, value: string) {
+    const n = Number(value.replace(",", "."));
+    updateRow(rowId, { qty: Number.isNaN(n) ? 0 : n });
+  }
+
+  function handleAddRow() {
+    setRows((prev) => [...prev, makeRow()]);
+  }
+
+  function handleRemoveRow(rowId: string) {
+    setRows((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((r) => r.id !== rowId);
+    });
+  }
+
+  /* ----- AI helper (lokal) ----- */
+
+  function handleBantuanAi() {
+    setErrorMsg(null);
+
+    if (totalHpp <= 0) {
+      setErrorMsg(
+        "Isi komposisi resep dulu supaya HPP bisa dihitung sebelum minta bantuan AI."
+      );
+      return;
+    }
+
+    // rule-of-thumb:
+    // kompetitif: margin 25%
+    // standar:   margin 40%
+    // premium:   margin 60%
+    const kompetitif = Math.round(totalHpp / (1 - 0.25));
+    const standar = Math.round(totalHpp / (1 - 0.4));
+    const premium = Math.round(totalHpp / (1 - 0.6));
+
+    setAiHargaKompetitif(kompetitif);
+    setAiHargaStandar(standar);
+    setAiHargaPremium(premium);
+
+    // default: pilih standar (sesuai Figma)
+    setSelectedTier("standar");
+    setTargetHarga(String(standar));
+
+    setNotice("Bantuan AI: rekomendasi harga sudah diisi.");
+  }
+
+  function handleSelectTier(tier: Tier) {
+    let price: number | null = null;
+    if (tier === "kompetitif") price = aiHargaKompetitif;
+    if (tier === "standar") price = aiHargaStandar;
+    if (tier === "premium") price = aiHargaPremium;
+
+    if (!price) {
+      // kalau AI belum pernah di-klik, paksa user klik AI dulu
+      setErrorMsg(
+        "Klik tombol Bantuan AI dulu supaya rekomendasi harga bisa dihitung."
+      );
+      return;
+    }
+
+    setSelectedTier(tier);
+    setTargetHarga(String(price));
+  }
+
+  /* ----- derived: rekomendasi harga + pajak + channel ----- */
+
+  const targetHargaNumber = Number(targetHarga) || 0;
+
+  const rekomendasiHarga: number = useMemo(() => {
+    if (selectedTier === "kompetitif" && aiHargaKompetitif)
+      return aiHargaKompetitif;
+    if (selectedTier === "premium" && aiHargaPremium) return aiHargaPremium;
+    if (selectedTier === "standar" && aiHargaStandar) return aiHargaStandar;
+    return targetHargaNumber;
+  }, [
+    selectedTier,
+    aiHargaKompetitif,
+    aiHargaStandar,
+    aiHargaPremium,
+    targetHargaNumber,
+  ]);
+
+  // harga dasar (offline)
+  const dasarHarga = rekomendasiHarga > 0 ? rekomendasiHarga : 0;
+
+  // kalau pajak dicentang → +10%, kalau nggak → sama dengan harga dasar
+  const hargaSetelahPajak =
+    dasarHarga > 0 ? Math.round(dasarHarga * (includePajak ? 1.1 : 1)) : 0;
+
+  // kalau channel dicentang → +20% di atas harga yang dipakai (setelah pajak kalau aktif)
+  const basisChannel = includePajak ? hargaSetelahPajak : dasarHarga;
+  const hargaOnline =
+    basisChannel > 0 ? Math.round(basisChannel * (includeChannel ? 1.2 : 1)) : 0;
+
+  const marginInfo = useMemo(() => {
+    if (!dasarHarga || !totalHpp) return null;
+    const marginNominal = dasarHarga - totalHpp;
+    const marginPercent =
+      dasarHarga > 0 ? Math.round((marginNominal / dasarHarga) * 100) : 0;
+    return {
+      marginNominal,
+      marginPercent,
+    };
+  }, [dasarHarga, totalHpp]);
+
+  /* ----- save menu ----- */
+
+  async function handleSimpanMenu() {
+    setErrorMsg(null);
+
+if (!namaMenu.trim()) {
+  setErrorMsg("Nama menu wajib diisi.");
+  return;
+}
+
+/**
+ * PENTING:
+ * Untuk disimpan ke backend, kita pakai qty dari `rows` (input user),
+ * BUKAN dari `rowsWithCalc` (yang sudah dipakai buat perhitungan / konversi).
+ *
+ * Ini supaya data di tabel `menu_items.qty` = angka yang user isi di UI,
+ * bukan angka yang sudah “diproses” dan bisa membengkak (contoh kasus 10 ml → 100).
+ */
+const itemsPayload = rows
+  .filter((r) => r.bahanId && r.qty > 0)
+  .map((r) => ({
+    bahan_id: r.bahanId,
+    qty: Number(r.qty) || 0,
+    unit: r.unit,
+  }));
+
+if (itemsPayload.length === 0) {
+  setErrorMsg("Minimal isi satu bahan resep dengan Qty > 0.");
+  return;
+}
+
+// DEBUG: pastikan payload yang dikirim sudah benar
+console.log("[HPP] POST /menu itemsPayload:", itemsPayload);
+
     try {
-      const hdr = ownerId || DEFAULT_OWNER_ID;
-      const items = rows
-        .filter((r) => r.bahan_id && r.qty > 0 && r.unit)
-        .map((r) => ({ bahan_id: r.bahan_id!, qty: r.qty, unit: r.unit! }));
+      setSaving(true);
 
-      if (!items.length) throw new Error("Pilih bahan dan isi qty dulu.");
-
-      const res = await fetch(`${API_BASE}/setup/bom`, {
+      await callApi("/menu", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-owner-id": hdr },
-        body: JSON.stringify({ produk: (namaMenu || "Produk Tanpa Nama").trim(), items }),
+        body: JSON.stringify({
+          nama_menu: namaMenu.trim(),
+          items: itemsPayload,
+        }),
       });
 
-      if (!res.ok) throw new Error(`POST /setup/bom ${res.status}`);
-      setMsg({ ok: "BOM tersimpan ✅" });
+      setNotice("Menu & HPP berhasil disimpan.");
+      // redirect manual
+      window.location.href = "/menu";
     } catch (e: any) {
-      setMsg({ err: e?.message || "Gagal simpan BOM." });
+      console.error("Gagal menyimpan menu:", e);
+      setErrorMsg(
+        cleanErrorMessage(e?.message || "Gagal menyimpan menu. Coba lagi.")
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  /** ====== UI ====== */
+  /* ========= render ========= */
+
   return (
-    <div className="px-4 pt-4 md:px-6 md:pt-4 max-w-4xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl md:text-[28px] font-extrabold tracking-tight">Kalkulator HPP</h1>
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-neutral-500">Owner ID</span>
+    <div className="mx-auto max-w-6xl px-6 py-6 lg:px-8 lg:py-8">
+      {notice && (
+        <SuccessToast message={notice} onClose={() => setNotice(null)} />
+      )}
+
+      <h1 className="mb-1 text-3xl font-extrabold tracking-tight">
+        Kalkulator HPP
+      </h1>
+      <p className="mb-6 text-sm text-gray-600">
+        Susun resep, hitung HPP per porsi, dan simpan sebagai menu.
+      </p>
+
+      {errorMsg && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {errorMsg}
+        </div>
+      )}
+
+      {/* ====== Nama Menu + Resep ====== */}
+      <div className="mb-6 rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+        <div className="border-b border-gray-100 px-5 py-4">
+          <label className="mb-2 block text-sm font-semibold text-gray-800">
+            Nama Menu
+          </label>
           <input
-            value={ownerId}
-            onChange={(e) => setOwnerId(e.target.value.trim())}
-            placeholder="UUID owner"
-            className="h-9 w-[260px] rounded-lg border px-2 outline-none"
+            value={namaMenu}
+            onChange={(e) => setNamaMenu(e.target.value)}
+            placeholder="ex: Es Kopi Susu Gula Aren"
+            className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
           />
-          <button
-            onClick={loadBahan}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border px-3"
-          >
-            ⟳ Refresh Bahan
-          </button>
+        </div>
+
+        <div className="px-5 pb-5 pt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-800">Nama Resep</h2>
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Tambah</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-y border-gray-100 text-left text-xs font-semibold text-gray-500">
+                  <th className="px-2 py-2 md:px-3">Nama Bahan</th>
+                  <th className="px-2 py-2 text-center md:px-3">Qty.</th>
+                  <th className="px-2 py-2 text-center md:px-3">Unit</th>
+                  <th className="px-2 py-2 text-right md:px-3">Harga</th>
+                  <th className="px-2 py-2 text-center md:px-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rowsWithCalc.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-gray-50 hover:bg-gray-50/60"
+                  >
+                    <td className="px-2 py-2.5 md:px-3">
+                      <select
+                        value={row.bahanId ?? ""}
+                        onChange={(e) =>
+                          handleChangeBahan(row.id, e.target.value)
+                        }
+                        className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-xs md:text-sm outline-none focus:border-gray-400"
+                      >
+                        <option value="">Pilih bahan resep</option>
+                        {bahanOptions.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.nama}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="px-2 py-2.5 text-center md:px-3">
+                      <input
+                        type="number"
+                        min={0}
+                        value={row.qty || ""}
+                        onChange={(e) =>
+                          handleChangeQty(row.id, e.target.value)
+                        }
+                        className="w-20 rounded-xl border border-gray-300 px-2 py-2 text-center text-xs md:text-sm outline-none focus:border-gray-400"
+                      />
+                    </td>
+
+                    <td className="px-2 py-2.5 text-center md:px-3 text-xs text-gray-700">
+                      {row.unit || "-"}
+                    </td>
+
+                    <td className="px-2 py-2.5 text-right md:px-3 text-xs md:text-sm text-gray-800">
+                      {row.subtotal > 0 ? rupiah(row.subtotal) : "-"}
+                    </td>
+
+                    <td className="px-2 py-2.5 text-center md:px-3">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRow(row.id)}
+                        disabled={rows.length <= 1}
+                        className="rounded-lg p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {loadingBahan && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-2 py-3 text-center text-xs text-gray-500"
+                    >
+                      Memuat daftar bahan…
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* total di kanan bawah kartu resep, mirip Figma */}
+          <div className="mt-4 flex justify-end">
+            <div className="space-y-0.5 text-xs md:text-sm text-gray-700">
+              <div className="flex justify-between gap-8">
+                <span>Total Harga Bahan</span>
+                <span className="font-semibold">
+                  {rupiah(totalBahan || 0)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-8">
+                <span>Total Overhead</span>
+                <span className="font-semibold">
+                  {loadingConfig ? "…" : rupiah(overheadPerPorsi || 0)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-8 border-t border-gray-200 pt-1.5 font-semibold">
+                <span>Total HPP</span>
+                <span>{rupiah(totalHpp || 0)}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {msg?.err && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {msg.err}
-        </div>
-      )}
-      {msg?.ok && (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-          {msg.ok}
-        </div>
-      )}
+      {/* ====== Target Harga Jual + Estimasi Profit ====== */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Target Harga Jual */}
+        <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+          <div className="border-b border-gray-100 px-5 py-4">
+            <h2 className="text-sm font-semibold text-gray-800">
+              Target Harga Jual
+            </h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Masukkan target harga jual per porsi.
+            </p>
+          </div>
 
-      {/* Card utama */}
-      <div className="rounded-2xl bg-white p-4 md:p-5 shadow-sm border">
-        {/* Nama Menu */}
-        <label className="block text-sm text-neutral-700 mb-2">Nama Menu</label>
-        <input
-          value={namaMenu}
-          onChange={(e) => setNamaMenu(e.target.value)}
-          className="w-full rounded-xl border px-3 py-2 mb-6 focus:outline-none focus:ring-2 focus:ring-gray-200"
-        />
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Komposisi */}
-          <div className="lg:col-span-2">
-            <div className="grid grid-cols-12 text-sm font-semibold text-neutral-700 px-2">
-              <div className="col-span-5">Nama Resep</div>
-              <div className="col-span-2 text-right">Qty.</div>
-              <div className="col-span-2">Satuan</div>
-              <div className="col-span-2 text-right">Harga</div>
-              <div className="col-span-1" />
+          <div className="px-5 pb-5 pt-4 space-y-4">
+            {/* input harga */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Harga Jual (Rp)
+              </label>
+              <div className="flex items-center rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus-within:border-gray-400">
+                <span className="mr-2 text-gray-500">Rp</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={targetHarga}
+                  onChange={(e) => setTargetHarga(e.target.value)}
+                  placeholder="15000"
+                  className="w-full border-none bg-transparent text-sm outline-none"
+                />
+              </div>
             </div>
 
-            <div className="divide-y">
-              {rows.map((r) => (
-                <div key={r.id} className="grid grid-cols-12 items-center gap-2 py-3">
-                  {/* pilih bahan */}
-                  <div className="col-span-5">
-                    <select
-                      value={r.bahan_id ?? ""}
-                      onChange={(e) => pickBahan(r.id, e.target.value)}
-                      className="w-full rounded-xl border px-3 py-2 bg-white"
-                    >
-                      <option value="">{loading ? "Memuat bahan..." : "— pilih bahan —"}</option>
-                      {bahanList.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.nama_bahan}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* qty */}
-                  <div className="col-span-2">
-                    <input
-                      type="number"
-                      min={0}
-                      inputMode="numeric"
-                      value={r.qty}
-                      onChange={(e) => updateRow(r.id, { qty: Number(e.target.value || 0) })}
-                      className="w-full rounded-xl border px-3 py-2 text-right"
-                    />
-                  </div>
-
-                  {/* unit */}
-                  <div className="col-span-2">
-                    <select
-                      value={r.unit ?? ""}
-                      onChange={(e) => updateRow(r.id, { unit: e.target.value })}
-                      className="w-full rounded-xl border px-3 py-2 bg-white"
-                    >
-                      <option value={r.unit ?? ""}>{r.unit ?? "satuan"}</option>
-                      {UNITS.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-[11px] text-neutral-500">
-                      {r.hargaPerUnit ? `@ ${rupiah(r.hargaPerUnit)} / ${r.unit}` : "—"}
-                    </div>
-                  </div>
-
-                  {/* subtotal */}
-                  <div className="col-span-2 text-right font-medium">{rupiah(r.harga)}</div>
-
-                  {/* delete */}
-                  <div className="col-span-1 text-right">
-                    <button
-                      onClick={() => delRow(r.id)}
-                      className="px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
-                      title="Hapus baris"
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Tambah baris */}
-            <div className="mt-4">
+            {/* header + tombol AI */}
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-gray-500">
+                KOMPETITIF &nbsp;•&nbsp; STANDAR &nbsp;•&nbsp; PREMIUM
+              </div>
               <button
-                onClick={addRow}
-                className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm font-semibold"
+                type="button"
+                onClick={handleBantuanAi}
+                className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
               >
-                Tambah +
+                <span>🤖 Bantuan AI</span>
               </button>
             </div>
+
+            {/* 3 opsi harga */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Kompetitif */}
+              <button
+                type="button"
+                onClick={() => handleSelectTier("kompetitif")}
+                className={`rounded-xl px-3 py-2 text-center text-xs transition ${
+                  selectedTier === "kompetitif"
+                    ? "border border-red-500 bg-red-600 text-white"
+                    : "border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                <div className="mb-1 text-[11px] font-semibold opacity-80">
+                  Kompetitif
+                </div>
+                <div className="text-sm font-semibold">
+                  {aiHargaKompetitif ? rupiah(aiHargaKompetitif) : "-"}
+                </div>
+              </button>
+
+              {/* Standar */}
+              <button
+                type="button"
+                onClick={() => handleSelectTier("standar")}
+                className={`rounded-xl px-3 py-2 text-center text-xs transition ${
+                  selectedTier === "standar"
+                    ? "border border-red-500 bg-red-600 text-white"
+                    : "border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                <div className="mb-1 text-[11px] font-semibold opacity-80">
+                  Standar
+                </div>
+                <div className="text-sm font-semibold">
+                  {aiHargaStandar ? rupiah(aiHargaStandar) : "-"}
+                </div>
+              </button>
+
+              {/* Premium */}
+              <button
+                type="button"
+                onClick={() => handleSelectTier("premium")}
+                className={`rounded-xl px-3 py-2 text-center text-xs transition ${
+                  selectedTier === "premium"
+                    ? "border border-red-500 bg-red-600 text-white"
+                    : "border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                <div className="mb-1 text-[11px] font-semibold opacity-80">
+                  Premium
+                </div>
+                <div className="text-sm font-semibold">
+                  {aiHargaPremium ? rupiah(aiHargaPremium) : "-"}
+                </div>
+              </button>
+            </div>
+
+            {/* checkbox pajak / fee channel */}
+            <div className="space-y-2 pt-1">
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={includePajak}
+                  onChange={(e) => setIncludePajak(e.target.checked)}
+                />
+                <span>Pajak 10% (PB1)</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={includeChannel}
+                  onChange={(e) => setIncludeChannel(e.target.checked)}
+                />
+                <span>
+                  Fee Channel (GrabFood, GoFood, ShopeeFood)
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Estimasi Profit */}
+        <div className="flex flex-col rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+          <div className="border-b border-gray-100 px-5 py-4">
+            <h2 className="text-sm font-semibold text-gray-800">
+              Estimasi Profit
+            </h2>
           </div>
 
-          {/* Kartu total */}
-          <aside className="lg:col-span-1">
-            <div className="rounded-2xl border p-3 md:p-4">
-              <ul className="space-y-2 text-[14px]">
-                <li className="flex items-center justify-between">
-                  <span className="text-neutral-600">Total Harga Bahan</span>
-                  <span className="font-medium">{rupiah(totalBahan)}</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span className="text-neutral-600">Total Overhead</span>
-                  <span className="font-semibold">{rupiah(overhead)}</span>
-                </li>
-                <li className="mt-1 border-t pt-2 text-[16px] font-semibold flex items-center justify-between">
-                  <span>Total HPP</span>
-                  <span className="font-extrabold">{rupiah(totalHpp)}</span>
-                </li>
-              </ul>
+          <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
+            {/* harga rekomendasi utama */}
+            <div className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-4">
+              <p className="mb-1 text-xs font-medium text-gray-600">
+                Harga jual rekomendasi
+              </p>
+
+              <div className="text-2xl font-extrabold text-gray-900">
+                {dasarHarga ? rupiah(dasarHarga) : "Rp -"}
+              </div>
+
+              {marginInfo && (
+                <p className="mt-1 text-xs font-semibold text-emerald-600">
+                  Profit Margin {marginInfo.marginPercent}%
+                </p>
+              )}
+
+              {/* After tax & online – selalu tampil biar mirip Figma */}
+              {dasarHarga > 0 && (
+                <>
+                  <p className="mt-3 text-xs text-gray-700">
+                    {rupiah(hargaSetelahPajak)}{" "}
+                    <span
+                      className={
+                        includePajak ? "text-gray-500" : "text-gray-400"
+                      }
+                    >
+                      (After Tax PB1)
+                    </span>
+                  </p>
+                  <p className="text-xs text-gray-700">
+                    {rupiah(hargaOnline)}{" "}
+                    <span
+                      className={
+                        includeChannel ? "text-gray-500" : "text-gray-400"
+                      }
+                    >
+                      (Online Food)
+                    </span>
+                  </p>
+                </>
+              )}
             </div>
-          </aside>
+
+            {/* text penjelasan bawah */}
+            <div className="mt-1 flex-1 text-xs leading-relaxed text-gray-500">
+              <p className="mb-1">
+                Angka di atas adalah estimasi kasar berdasarkan total HPP per
+                porsi. Kamu tetap bisa menyesuaikan harga jual sesuai strategi
+                bisnis dan positioning brand.
+              </p>
+              <p>
+                Untuk hasil terbaik, gunakan kombinasi antara rekomendasi AI,
+                kompetitor di sekitar, dan target margin usahamu.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Target & Profit */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
-        {/* Target Harga Jual */}
-        <section className="rounded-2xl bg-white p-4 md:p-5 shadow-sm border">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-[16px] font-semibold">Target Harga Jual</div>
-            <button className="rounded-md bg-rose-100 px-3 py-1 text-[12px] font-semibold text-rose-700">
-              Bantuan AI ✨
-            </button>
-          </div>
-
-          <input
-            type="number"
-            inputMode="numeric"
-            value={targetHarga}
-            onChange={(e) => setTargetHarga(Number(e.target.value || 0))}
-            className="mb-3 h-11 w-full rounded-xl border px-4 text-[15px] outline-none"
-          />
-
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <button onClick={() => setTargetHarga(hargaKomp)} className="rounded-xl border px-3 py-2">
-              {rupiah(hargaKomp)}
-            </button>
-            <button onClick={() => setTargetHarga(hargaStd)} className="rounded-xl bg-red-600 text-white px-3 py-2">
-              {rupiah(hargaStd)}
-            </button>
-            <button onClick={() => setTargetHarga(hargaPrem)} className="rounded-xl border px-3 py-2">
-              {rupiah(hargaPrem)}
-            </button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-4 text-[13px]">
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={ppn} onChange={(e) => setPpn(e.target.checked)} />
-              Pajak 10% (PB1)
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={fee} onChange={(e) => setFee(e.target.checked)} />
-              Fee Channel (Grab/GoFood/ShopeeFood)
-            </label>
-          </div>
-        </section>
-
-        {/* Estimasi Profit */}
-        <aside className="rounded-2xl bg-white p-4 md:p-5 shadow-sm border">
-          <div className="text-[16px] font-semibold mb-2">Estimasi Profit</div>
-          <div className="text-[32px] font-extrabold leading-none">{rupiah(profit)}</div>
-          <div className="mt-1 text-[13px]">
-            <span className="font-semibold text-green-600">Profit Margin {marginPct}%</span>
-          </div>
-
-          <div className="mt-3 space-y-1 text-[13px]">
-            <div><span className="font-semibold">After Tax:</span> {rupiah(afterTax)}</div>
-            <div><span className="font-semibold">Online:</span> {rupiah(online)}</div>
-          </div>
-
-          <button
-            disabled={saving}
-            onClick={handleSave}
-            className="mt-4 h-11 w-full rounded-xl bg-[#b0002f] text-[14px] font-semibold text-white disabled:opacity-60"
-          >
-            {saving ? "Menyimpan..." : "Simpan 💾"}
-          </button>
-        </aside>
+      {/* ====== tombol simpan ====== */}
+      <div className="mt-8 flex justify-end">
+        <button
+          type="button"
+          onClick={handleSimpanMenu}
+          disabled={saving}
+          className="inline-flex w-full items-center justify-center rounded-2xl bg-red-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700 active:scale-[0.99] md:w-auto"
+        >
+          {saving ? "Menyimpan..." : "Simpan sebagai Menu"}
+        </button>
       </div>
     </div>
   );

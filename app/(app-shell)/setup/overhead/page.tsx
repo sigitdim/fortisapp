@@ -13,11 +13,14 @@ const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
+type OverheadKategori = "operasional" | "maintenance";
+
 type Overhead = {
   id: string;
   nama: string;
   biaya_bulanan?: number | null;
   created_at?: string;
+  kategori?: OverheadKategori | null;
 };
 
 function rupiah(n: number | string | null | undefined) {
@@ -34,8 +37,17 @@ function rupiah(n: number | string | null | undefined) {
 }
 
 function cleanErrorMessage(raw: string): string {
-  let msg = raw || "";
+  if (!raw) return "";
+  let msg = raw;
+
+  // buang tag HTML kalau ada
   msg = msg.replace(/<[^>]+>/g, "");
+
+  // mapping khusus duplicate unique_overhead_owner
+  if (msg.includes("unique_overhead_owner")) {
+    return "Nama overhead ini sudah digunakan. Gunakan nama lain.";
+  }
+
   msg = msg.replace(/^Error\s*/i, "");
   return msg.trim();
 }
@@ -91,6 +103,7 @@ export default function SetupOverheadPage() {
 
   const [namaOverhead, setNamaOverhead] = useState("");
   const [biayaBulanan, setBiayaBulanan] = useState("");
+  const [kategori, setKategori] = useState<OverheadKategori | "">("");
 
   const [deleteModalRow, setDeleteModalRow] = useState<Overhead | null>(null);
 
@@ -122,6 +135,11 @@ export default function SetupOverheadPage() {
             ? Number(x.biaya)
             : null,
         created_at: x.created_at,
+        // field kategori dari BE
+        kategori:
+          (x.kategori as OverheadKategori | null | undefined) ??
+          (x.kategori_overhead as OverheadKategori | null | undefined) ??
+          null,
       }));
 
       setRows(mapped);
@@ -153,6 +171,7 @@ export default function SetupOverheadPage() {
   function resetForm() {
     setNamaOverhead("");
     setBiayaBulanan("");
+    setKategori("");
     setEditing(null);
   }
 
@@ -169,6 +188,7 @@ export default function SetupOverheadPage() {
         ? String(row.biaya_bulanan)
         : ""
     );
+    setKategori(row.kategori || "");
     setFormModalOpen(true);
   }
 
@@ -186,20 +206,24 @@ export default function SetupOverheadPage() {
       return;
     }
 
+    if (!kategori) {
+      setErr("Kategori overhead wajib diisi (operasional / maintenance).");
+      return;
+    }
+
     try {
       setSaving(true);
       setErr(null);
 
       const biayaNum = Number(biayaBulanan.replace(",", "."));
       const safeBiaya = Number.isNaN(biayaNum) ? 0 : biayaNum;
-
       const namaTrim = namaOverhead.trim();
 
-      // Kontrak BE final:
-      // PUT/POST body: { nama: string, biaya: number }
+      // kontrak BE: { nama, biaya, kategori }
       const payload = {
         nama: namaTrim,
         biaya: safeBiaya,
+        kategori: kategori as OverheadKategori,
       };
 
       if (editing) {
@@ -284,9 +308,8 @@ export default function SetupOverheadPage() {
 
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm">
         {/* header card */}
- <div className="px-6 py-5">
+        <div className="px-6 py-5">
           <div className="flex flex-col gap-3">
-            {/* TOMBOL – kecil & pas */}
             <button
               onClick={openAddModal}
               className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
@@ -295,12 +318,11 @@ export default function SetupOverheadPage() {
               <Plus className="h-4 w-4" />
             </button>
 
-            {/* teks kecil di bawah tombol */}
             <p className="text-sm text-gray-500">
-              Biaya overhead selalu dihitung per <span className="font-semibold">bulan</span>.
+              Biaya overhead selalu dihitung per{" "}
+              <span className="font-semibold">bulan</span>.
             </p>
 
-            {/* search */}
             <div className="relative w-full md:w-[420px]">
               <input
                 value={query}
@@ -312,6 +334,7 @@ export default function SetupOverheadPage() {
             </div>
           </div>
         </div>
+
         {err && (
           <div className="mx-6 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {err}
@@ -324,6 +347,7 @@ export default function SetupOverheadPage() {
             <thead>
               <tr className="text-left text-sm text-gray-500">
                 <th className="px-6 py-3 font-semibold">Nama Overhead</th>
+                <th className="px-6 py-3 font-semibold">Kategori</th>
                 <th className="px-6 py-3 font-semibold">Biaya / Bulan</th>
                 <th className="px-6 py-3 text-right font-semibold">
                   Edit / Hapus
@@ -334,7 +358,7 @@ export default function SetupOverheadPage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-6 py-6 text-center text-sm text-gray-500"
                   >
                     Memuat data…
@@ -345,7 +369,7 @@ export default function SetupOverheadPage() {
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-6 py-8 text-center text-sm text-gray-500"
                   >
                     Belum ada data overhead.
@@ -363,12 +387,23 @@ export default function SetupOverheadPage() {
                       {row.nama}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
+                      {row.kategori ? (
+                        <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold capitalize text-gray-800">
+                          {row.kategori}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">
+                          Belum di-set
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-800">
                       {rupiah(row.biaya_bulanan)}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-3">
                         <button
-                          className="rounded-lg border border-gray-200 p-2 hover:bg-white"
+                          className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50"
                           onClick={() => openEditModal(row)}
                           aria-label="Edit"
                           title="Edit"
@@ -376,7 +411,7 @@ export default function SetupOverheadPage() {
                           <Pencil className="h-4 w-4 text-gray-700" />
                         </button>
                         <button
-                          className="rounded-lg border border-gray-200 p-2 hover:bg-white"
+                          className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50"
                           onClick={() => openDeleteModal(row)}
                           aria-label="Hapus"
                           title="Hapus"
@@ -429,6 +464,24 @@ export default function SetupOverheadPage() {
 
               <div className="space-y-1">
                 <label className="text-sm font-semibold text-gray-800">
+                  Kategori
+                </label>
+                <select
+                  value={kategori}
+                  onChange={(e) =>
+                    setKategori(e.target.value as OverheadKategori | "")
+                  }
+                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  required
+                >
+                  <option value="">Pilih kategori</option>
+                  <option value="operasional">Operasional</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-gray-800">
                   Biaya / Bulan (Rp)
                 </label>
                 <input
@@ -442,8 +495,7 @@ export default function SetupOverheadPage() {
                 />
                 <p className="text-xs text-gray-500">
                   Biaya ini selalu dianggap per{" "}
-                  <span className="font-semibold">bulan</span>. Tidak ada
-                  pengaturan durasi.
+                  <span className="font-semibold">bulan</span>.
                 </p>
               </div>
 
@@ -485,7 +537,7 @@ export default function SetupOverheadPage() {
               Overhead ini?
             </h2>
             <p className="mb-8 text-sm font-medium text-gray-800">
-              {deleteModalRow.nama}
+              {deleteModalRow?.nama}
             </p>
 
             <div className="flex flex-col gap-3 md:flex-row">

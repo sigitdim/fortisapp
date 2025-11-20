@@ -13,12 +13,16 @@ const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
+type TenagaKategori = "produksi" | "non-produksi" | "Produksi" | "Non_produksi";
+
 type TenagaKerja = {
   id: string;
   nama: string;
-  posisi?: string | null;
-  gaji_bulanan?: number | null;
+  jabatan?: string | null;
+  gaji?: number | null; // gaji bulanan
   hari_kerja?: number | null;
+  kategori?: TenagaKategori | null;
+  created_at?: string;
 };
 
 function rupiah(n: number | string | null | undefined) {
@@ -35,7 +39,8 @@ function rupiah(n: number | string | null | undefined) {
 }
 
 function cleanErrorMessage(raw: string): string {
-  let msg = raw || "";
+  if (!raw) return "";
+  let msg = raw;
   msg = msg.replace(/<[^>]+>/g, "");
   msg = msg.replace(/^Error\s*/i, "");
   return msg.trim();
@@ -68,6 +73,16 @@ async function callApi(
   return asJson ? res.json() : res;
 }
 
+/* ========= helpers kecil ========= */
+
+function normalizeKategori(kat?: string | null): TenagaKategori | null {
+  if (!kat) return null;
+  const lower = kat.toLowerCase();
+  if (lower.includes("produksi") && !lower.includes("non")) return "produksi";
+  if (lower.includes("non") && lower.includes("produksi")) return "non-produksi";
+  return kat as TenagaKategori;
+}
+
 /* ========= Page ========= */
 
 export default function SetupTenagaKerjaPage() {
@@ -91,9 +106,10 @@ export default function SetupTenagaKerjaPage() {
   const [editing, setEditing] = useState<TenagaKerja | null>(null);
 
   const [nama, setNama] = useState("");
-  const [posisi, setPosisi] = useState("");
-  const [gajiBulanan, setGajiBulanan] = useState("");
-  const [hariKerja, setHariKerja] = useState("26"); // default 26 hari
+  const [jabatan, setJabatan] = useState("");
+  const [gaji, setGaji] = useState("");
+  const [hariKerja, setHariKerja] = useState("");
+  const [kategori, setKategori] = useState<TenagaKategori | "">("");
 
   const [deleteModalRow, setDeleteModalRow] = useState<TenagaKerja | null>(
     null
@@ -113,32 +129,39 @@ export default function SetupTenagaKerjaPage() {
         ? (res as any)
         : [];
 
-      const mapped: TenagaKerja[] = raw.map((x: any, idx: number) => ({
-        id: String(x.id ?? x.tenaga_kerja_id ?? idx),
-        nama: x.nama ?? x.nama_tenaga ?? "",
-        posisi: x.posisi ?? x.jabatan ?? "",
-        gaji_bulanan:
-          typeof x.gaji_bulanan === "number"
-            ? x.gaji_bulanan
-            : typeof x.gaji === "number"
-            ? x.gaji
-            : x.gaji_bulanan != null
-            ? Number(x.gaji_bulanan)
-            : x.gaji != null
-            ? Number(x.gaji)
-            : null,
-        // 🔥 penting: baca hari_kerja_per_bulan dari BE
-        hari_kerja:
-          typeof x.hari_kerja_per_bulan === "number"
-            ? x.hari_kerja_per_bulan
-            : x.hari_kerja_per_bulan != null
-            ? Number(x.hari_kerja_per_bulan)
-            : typeof x.hari_kerja === "number"
-            ? x.hari_kerja
-            : x.hari_kerja != null
-            ? Number(x.hari_kerja)
-            : 26,
-      }));
+      const mapped: TenagaKerja[] = raw.map((x: any, idx: number) => {
+        // ambil hari kerja dari beberapa kemungkinan field
+        let hari: number | null = null;
+
+        if (typeof x.hari_kerja === "number") {
+          hari = x.hari_kerja;
+        } else if (typeof x.hari_kerja_per_bulan === "number") {
+          hari = x.hari_kerja_per_bulan;
+        } else if (x.hari_kerja != null) {
+          hari = Number(x.hari_kerja);
+        } else if (x.hari_kerja_per_bulan != null) {
+          hari = Number(x.hari_kerja_per_bulan);
+        }
+
+        if (Number.isNaN(hari as number)) hari = null;
+
+        return {
+          id: String(x.id ?? x.tenaga_kerja_id ?? idx),
+          nama: x.nama ?? x.nama_tenaga ?? "",
+          jabatan: x.jabatan ?? x.role ?? null,
+          gaji:
+            typeof x.gaji === "number"
+              ? x.gaji
+              : x.gaji != null
+              ? Number(x.gaji)
+              : null,
+          hari_kerja: hari,
+          kategori: normalizeKategori(
+            x.kategori ?? x.kategori_tenaga ?? x.kategori_pekerja
+          ),
+          created_at: x.created_at,
+        };
+      });
 
       setRows(mapped);
     } catch (e: any) {
@@ -161,8 +184,10 @@ export default function SetupTenagaKerjaPage() {
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) =>
-      (r.nama || "").toLowerCase().includes(q)
+    return rows.filter(
+      (r) =>
+        (r.nama || "").toLowerCase().includes(q) ||
+        (r.jabatan || "").toLowerCase().includes(q)
     );
   }, [rows, query]);
 
@@ -170,9 +195,10 @@ export default function SetupTenagaKerjaPage() {
 
   function resetForm() {
     setNama("");
-    setPosisi("");
-    setGajiBulanan("");
-    setHariKerja("26");
+    setJabatan("");
+    setGaji("");
+    setHariKerja("");
+    setKategori("");
     setEditing(null);
   }
 
@@ -184,17 +210,16 @@ export default function SetupTenagaKerjaPage() {
   function openEditModal(row: TenagaKerja) {
     setEditing(row);
     setNama(row.nama || "");
-    setPosisi(row.posisi || "");
-    setGajiBulanan(
-      row.gaji_bulanan != null && !Number.isNaN(row.gaji_bulanan)
-        ? String(row.gaji_bulanan)
-        : ""
+    setJabatan(row.jabatan || "");
+    setGaji(
+      row.gaji != null && !Number.isNaN(row.gaji) ? String(row.gaji) : ""
     );
     setHariKerja(
       row.hari_kerja != null && !Number.isNaN(row.hari_kerja)
         ? String(row.hari_kerja)
-        : "26"
+        : ""
     );
+    setKategori(row.kategori || "");
     setFormModalOpen(true);
   }
 
@@ -207,8 +232,13 @@ export default function SetupTenagaKerjaPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!nama.trim() || !gajiBulanan.trim()) {
-      setErr("Nama tenaga kerja dan gaji bulanan wajib diisi.");
+    if (!nama.trim() || !gaji.trim()) {
+      setErr("Nama dan gaji per bulan wajib diisi.");
+      return;
+    }
+
+    if (!kategori) {
+      setErr("Kategori tenaga kerja wajib diisi (produksi / non-produksi).");
       return;
     }
 
@@ -216,28 +246,28 @@ export default function SetupTenagaKerjaPage() {
       setSaving(true);
       setErr(null);
 
-      const gajiNum = Number(gajiBulanan.replace(",", "."));
-      const hariNum = Number(hariKerja || "0");
-
+      const gajiNum = Number(gaji.replace(",", "."));
       const safeGaji = Number.isNaN(gajiNum) ? 0 : gajiNum;
+
+      const hariNum =
+        hariKerja.trim() === "" ? null : Number(hariKerja.replace(",", "."));
       const safeHari =
-        Number.isNaN(hariNum) || hariNum <= 0 ? 26 : hariNum;
+        hariNum === null || Number.isNaN(hariNum) ? null : hariNum;
 
-      const namaTrim = nama.trim();
-      const posisiTrim = posisi.trim() || "Operasional";
+const payload: any = {
+  nama: nama.trim(),
+  jabatan: jabatan.trim() || null,
 
-      // Kontrak BE (FINAL):
-      // POST:
-      // { nama, jabatan, gaji_bulanan, hari_kerja }
-      // PUT:
-      // { nama, jabatan/posisi, gaji_bulanan, hari_kerja }
-      const payload: any = {
-        nama: namaTrim,
-        jabatan: posisiTrim,
-        posisi: posisiTrim, // alias, aman menurut kontrak BE
-        gaji_bulanan: safeGaji,
-        hari_kerja: safeHari,
-      };
+  // gaji versi lama + versi baru (gaji_bulanan) sekalian
+  gaji: safeGaji,
+  gaji_bulanan: safeGaji,
+
+  kategori: kategori as TenagaKategori,
+
+  // hari kerja
+  hari_kerja: safeHari,
+  hari_kerja_per_bulan: safeHari,
+};
 
       if (editing) {
         await callApi(`/setup/tenaga_kerja/${editing.id}`, {
@@ -317,28 +347,35 @@ export default function SetupTenagaKerjaPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">Setup</h1>
       </div>
 
-      {/* aktifkan tab tenaga-kerja */}
       <SetupTabs active="tenaga-kerja" />
 
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm">
         {/* header card */}
-        <div className="flex flex-col gap-3 px-6 py-5 md:flex-row md:items-center md:justify-between">
-          <button
-            onClick={openAddModal}
-            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 active:scale-[0.99] md:text-sm"
-          >
-            <span>Tambah Tenaga Kerja</span>
-            <Plus className="h-4 w-4" />
-          </button>
+        <div className="px-6 py-5">
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={openAddModal}
+              className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
+            >
+              <span>Tambah Tenaga Kerja</span>
+              <Plus className="h-4 w-4" />
+            </button>
 
-          <div className="relative w-full md:w-[420px]">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="ex : Monang"
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 pl-10 text-sm outline-none focus:border-gray-400"
-            />
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <p className="text-sm text-gray-500">
+              Kategori <span className="font-semibold">produksi</span> akan
+              dipakai dalam perhitungan HPP. Gaji dianggap{" "}
+              <span className="font-semibold">per bulan</span>.
+            </p>
+
+            <div className="relative w-full md:w-[420px]">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari nama atau jabatan"
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 pl-10 text-sm outline-none focus:border-gray-400"
+              />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            </div>
           </div>
         </div>
 
@@ -353,12 +390,11 @@ export default function SetupTenagaKerjaPage() {
           <table className="min-w-full border-t border-gray-100">
             <thead>
               <tr className="text-left text-sm text-gray-500">
-                <th className="px-6 py-3 font-semibold">
-                  Nama Tenaga Kerja
-                </th>
-                <th className="px-6 py-3 font-semibold">Posisi</th>
-                <th className="px-6 py-3 font-semibold">Gaji</th>
-                <th className="px-6 py-3 font-semibold">Hari Kerja</th>
+                <th className="px-6 py-3 font-semibold">Nama</th>
+                <th className="px-6 py-3 font-semibold">Jabatan</th>
+                <th className="px-6 py-3 font-semibold">Kategori</th>
+                <th className="px-6 py-3 font-semibold">Gaji / Bulan</th>
+                <th className="px-6 py-3 font-semibold">Hari Kerja / Bulan</th>
                 <th className="px-6 py-3 text-right font-semibold">
                   Edit / Hapus
                 </th>
@@ -368,7 +404,7 @@ export default function SetupTenagaKerjaPage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-6 py-6 text-center text-sm text-gray-500"
                   >
                     Memuat data…
@@ -379,7 +415,7 @@ export default function SetupTenagaKerjaPage() {
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-6 py-8 text-center text-sm text-gray-500"
                   >
                     Belum ada data tenaga kerja.
@@ -397,18 +433,31 @@ export default function SetupTenagaKerjaPage() {
                       {row.nama}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.posisi || "Operasional"}
+                      {row.jabatan || (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {rupiah(row.gaji_bulanan)}
+                      {row.kategori ? (
+                        <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-800">
+                          {String(row.kategori).replace("_", " ")}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">
+                          Belum di-set
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.hari_kerja ?? 26}
+                      {rupiah(row.gaji)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-800">
+                      {row.hari_kerja != null ? `${row.hari_kerja} hari` : "-"}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-3">
                         <button
-                          className="rounded-lg border border-gray-200 p-2 hover:bg-white"
+                          className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50"
                           onClick={() => openEditModal(row)}
                           aria-label="Edit"
                           title="Edit"
@@ -416,7 +465,7 @@ export default function SetupTenagaKerjaPage() {
                           <Pencil className="h-4 w-4 text-gray-700" />
                         </button>
                         <button
-                          className="rounded-lg border border-gray-200 p-2 hover:bg-white"
+                          className="rounded-lg border border-gray-200 p-2 hover:bg-gray-50"
                           onClick={() => openDeleteModal(row)}
                           aria-label="Hapus"
                           title="Hapus"
@@ -456,12 +505,12 @@ export default function SetupTenagaKerjaPage() {
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-1">
                 <label className="text-sm font-semibold text-gray-800">
-                  Nama Tenaga Kerja
+                  Nama
                 </label>
                 <input
                   value={nama}
                   onChange={(e) => setNama(e.target.value)}
-                  placeholder="ex: Barista"
+                  placeholder="ex: Barista A"
                   className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
                   required
                 />
@@ -469,26 +518,48 @@ export default function SetupTenagaKerjaPage() {
 
               <div className="space-y-1">
                 <label className="text-sm font-semibold text-gray-800">
-                  Posisi / Jabatan
+                  Jabatan
                 </label>
                 <input
-                  value={posisi}
-                  onChange={(e) => setPosisi(e.target.value)}
-                  placeholder="ex: Operasional"
+                  value={jabatan}
+                  onChange={(e) => setJabatan(e.target.value)}
+                  placeholder="ex: Barista, Cook"
                   className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-sm font-semibold text-gray-800">
-                  Gaji Bulanan (Rp)
+                  Kategori
+                </label>
+                <select
+                  value={kategori}
+                  onChange={(e) =>
+                    setKategori(e.target.value as TenagaKategori | "")
+                  }
+                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  required
+                >
+                  <option value="">Pilih kategori</option>
+                  <option value="produksi">Produksi</option>
+                  <option value="non-produksi">Non-Produksi</option>
+                </select>
+                <p className="text-xs text-gray-500">
+                  Hanya kategori <span className="font-semibold">produksi</span>{" "}
+                  yang dihitung ke overhead HPP.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-semibold text-gray-800">
+                  Gaji / Bulan (Rp)
                 </label>
                 <input
                   type="number"
                   min={0}
-                  value={gajiBulanan}
-                  onChange={(e) => setGajiBulanan(e.target.value)}
-                  placeholder="ex: 1500000"
+                  value={gaji}
+                  onChange={(e) => setGaji(e.target.value)}
+                  placeholder="ex: 3000000"
                   className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
                   required
                 />
@@ -500,8 +571,7 @@ export default function SetupTenagaKerjaPage() {
                 </label>
                 <input
                   type="number"
-                  min={1}
-                  max={31}
+                  min={0}
                   value={hariKerja}
                   onChange={(e) => setHariKerja(e.target.value)}
                   placeholder="ex: 26"
@@ -544,7 +614,7 @@ export default function SetupTenagaKerjaPage() {
             <h2 className="mb-3 text-2xl font-extrabold text-gray-900">
               Yakin Ingin Menghapus
               <br />
-              Tenaga Kerja ini?
+              Data Tenaga Kerja ini?
             </h2>
             <p className="mb-8 text-sm font-medium text-gray-800">
               {deleteModalRow?.nama}

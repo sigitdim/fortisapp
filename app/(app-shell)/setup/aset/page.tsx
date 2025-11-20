@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Search, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, AlertCircle } from "lucide-react";
 import { SetupTabs } from "../_components/SetupTabs";
 import SuccessToast from "@/components/SuccessToast";
 
@@ -15,11 +15,12 @@ const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 type Aset = {
   id: string;
-  nama: string;
-  kategori: string;
+  nama_aset: string;
+  kategori?: string | null;
+  kategori_hpp?: string | null;
   harga_beli?: number | null;
-  waktu_beli?: string | null; // ISO string "2025-12-01"
-  nilai_ekonomis_bulan?: number | null;
+  nilai_ekonomis?: number | null;
+  nilai_residu?: number | null;
   status?: string | null;
   created_at?: string;
 };
@@ -38,25 +39,11 @@ function rupiah(n: number | string | null | undefined) {
 }
 
 function cleanErrorMessage(raw: string): string {
-  let msg = raw || "";
+  if (!raw) return "";
+  let msg = raw;
   msg = msg.replace(/<[^>]+>/g, "");
   msg = msg.replace(/^Error\s*/i, "");
   return msg.trim();
-}
-
-// Tampilkan di tabel sebagai "MM/YY" (contoh: 12/25) kalau stringnya ISO (YYYY-MM-DD)
-function formatWaktuBeliDisplay(v?: string | null): string {
-  if (!v) return "—";
-  try {
-    // kalau backend sudah kirim format lain (mis: "12/25"), jangan di-oprek
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-
-    const [yearStr, monthStr] = v.split("-");
-    const yy = yearStr.slice(-2);
-    return `${monthStr}/${yy}`;
-  } catch {
-    return v || "—";
-  }
 }
 
 async function callApi(
@@ -110,10 +97,11 @@ export default function SetupAsetPage() {
 
   const [namaAset, setNamaAset] = useState("");
   const [kategori, setKategori] = useState("");
+  const [kategoriHpp, setKategoriHpp] = useState<"produksi" | "non-produksi" | "">("");
   const [hargaBeli, setHargaBeli] = useState("");
-  const [waktuBeli, setWaktuBeli] = useState(""); // ISO date (YYYY-MM-DD)
   const [nilaiEkonomis, setNilaiEkonomis] = useState("");
-  const [status, setStatus] = useState("Aktif");
+  const [nilaiResidu, setNilaiResidu] = useState("");
+  const [status, setStatus] = useState<"Aktif" | "Rusak" | "Non-Aktif" | "">("");
 
   const [deleteModalRow, setDeleteModalRow] = useState<Aset | null>(null);
 
@@ -131,23 +119,32 @@ export default function SetupAsetPage() {
         ? (res as any)
         : [];
 
-      const mapped: Aset[] = raw.map((x: any, idx: number) => {
-        const backendId = x.id ?? x.aset_id ?? idx;
-        return {
-          id: String(backendId),
-          nama: x.nama ?? x.nama_aset ?? "",
-          kategori: x.kategori ?? x.category ?? "",
-          harga_beli: x.harga_beli ?? x.harga ?? null,
-          waktu_beli: x.waktu_beli ?? x.tanggal_beli ?? x.tgl_beli ?? null,
-          nilai_ekonomis_bulan:
-            x.nilai_ekonomis_bulan ??
-            x.nilai_ekonomis ??
-            x.masa_manfaat_bulan ??
-            null,
-          status: x.status ?? "",
-          created_at: x.created_at,
-        };
-      });
+      const mapped: Aset[] = raw.map((x: any, idx: number) => ({
+        id: String(x.id ?? idx),
+        nama_aset: x.nama_aset ?? x.nama ?? "",
+        kategori: x.kategori ?? null,
+        kategori_hpp: x.kategori_hpp ?? null,
+        harga_beli:
+          typeof x.harga_beli === "number"
+            ? x.harga_beli
+            : x.harga_beli != null
+            ? Number(x.harga_beli)
+            : null,
+        nilai_ekonomis:
+          typeof x.nilai_ekonomis === "number"
+            ? x.nilai_ekonomis
+            : x.nilai_ekonomis != null
+            ? Number(x.nilai_ekonomis)
+            : null,
+        nilai_residu:
+          typeof x.nilai_residu === "number"
+            ? x.nilai_residu
+            : x.nilai_residu != null
+            ? Number(x.nilai_residu)
+            : null,
+        status: x.status ?? null,
+        created_at: x.created_at,
+      }));
 
       setRows(mapped);
     } catch (e: any) {
@@ -168,7 +165,9 @@ export default function SetupAsetPage() {
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => (r.nama || "").toLowerCase().includes(q));
+    return rows.filter((r) =>
+      (r.nama_aset || "").toLowerCase().includes(q)
+    );
   }, [rows, query]);
 
   /* ----- form helpers ----- */
@@ -176,10 +175,11 @@ export default function SetupAsetPage() {
   function resetForm() {
     setNamaAset("");
     setKategori("");
+    setKategoriHpp("");
     setHargaBeli("");
-    setWaktuBeli("");
     setNilaiEkonomis("");
-    setStatus("Aktif");
+    setNilaiResidu("");
+    setStatus("");
     setEditing(null);
   }
 
@@ -190,28 +190,27 @@ export default function SetupAsetPage() {
 
   function openEditModal(row: Aset) {
     setEditing(row);
-    setNamaAset(row.nama || "");
+    setNamaAset(row.nama_aset || "");
     setKategori(row.kategori || "");
+    setKategoriHpp(
+      (row.kategori_hpp as "produksi" | "non-produksi" | "") || ""
+    );
     setHargaBeli(
       row.harga_beli != null && !Number.isNaN(row.harga_beli)
         ? String(row.harga_beli)
         : ""
     );
-
-    // kalau BE sudah simpan ISO, pakai langsung; kalau bentuknya "12/25" kita gak bisa konversi balik dengan aman → biarkan kosong
-    if (row.waktu_beli && /^\d{4}-\d{2}-\d{2}$/.test(row.waktu_beli)) {
-      setWaktuBeli(row.waktu_beli);
-    } else {
-      setWaktuBeli("");
-    }
-
     setNilaiEkonomis(
-      row.nilai_ekonomis_bulan != null &&
-      !Number.isNaN(row.nilai_ekonomis_bulan)
-        ? String(row.nilai_ekonomis_bulan)
+      row.nilai_ekonomis != null && !Number.isNaN(row.nilai_ekonomis)
+        ? String(row.nilai_ekonomis)
         : ""
     );
-    setStatus(row.status || "Aktif");
+    setNilaiResidu(
+      row.nilai_residu != null && !Number.isNaN(row.nilai_residu)
+        ? String(row.nilai_residu)
+        : ""
+    );
+    setStatus((row.status as "Aktif" | "Rusak" | "Non-Aktif" | "") || "");
     setFormModalOpen(true);
   }
 
@@ -224,8 +223,20 @@ export default function SetupAsetPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!namaAset.trim() || !kategori.trim() || !hargaBeli.trim()) {
-      setErr("Nama aset, kategori, dan harga beli wajib diisi.");
+    if (!namaAset.trim()) {
+      setErr("Nama aset wajib diisi.");
+      return;
+    }
+    if (!kategoriHpp) {
+      setErr("Kategori HPP wajib dipilih.");
+      return;
+    }
+    if (!hargaBeli.trim() || !nilaiEkonomis.trim()) {
+      setErr("Harga beli dan umur ekonomis wajib diisi.");
+      return;
+    }
+    if (!status) {
+      setErr("Status aset wajib dipilih.");
       return;
     }
 
@@ -234,55 +245,29 @@ export default function SetupAsetPage() {
       setErr(null);
 
       const hargaNum = Number(hargaBeli.replace(",", "."));
-      const nilaiNum =
-        nilaiEkonomis.trim() === ""
-          ? null
-          : Number(nilaiEkonomis.replace(",", "."));
+      const safeHarga = Number.isNaN(hargaNum) ? 0 : hargaNum;
 
-      const namaTrim = namaAset.trim();
-      const kategoriTrim = kategori.trim();
-      const statusTrim = status.trim() || "Aktif";
+      const umurNum = Number(nilaiEkonomis.replace(",", "."));
+      const safeUmur = Number.isNaN(umurNum) ? 0 : umurNum;
 
-      // waktuBeli sudah dalam format ISO (YYYY-MM-DD) dari input[type=date]
-      const waktuTrim = waktuBeli || null;
+      const residuNum = Number(nilaiResidu.replace(",", "."));
+      const safeResidu = Number.isNaN(residuNum) ? 0 : residuNum;
 
-      const payload: any = {
-        nama: namaTrim,
-        nama_aset: namaTrim,
-        kategori: kategoriTrim,
-        harga_beli: Number.isNaN(hargaNum) ? 0 : hargaNum,
-        harga: Number.isNaN(hargaNum) ? 0 : hargaNum,
-        waktu_beli: waktuTrim,
-        tanggal_beli: waktuTrim,
-        nilai_ekonomis_bulan:
-          nilaiNum == null || Number.isNaN(nilaiNum) ? null : nilaiNum,
-        nilai_ekonomis:
-          nilaiNum == null || Number.isNaN(nilaiNum) ? null : nilaiNum,
-        status: statusTrim,
+      const payload = {
+        nama_aset: namaAset.trim(),
+        kategori: kategori.trim() || null,
+        kategori_hpp: kategoriHpp,
+        harga_beli: safeHarga,
+        nilai_ekonomis: safeUmur,
+        nilai_residu: safeResidu,
+        status,
       };
 
       if (editing) {
-        try {
-          await callApi(`/setup/aset/${editing.id}`, {
-            method: "PUT",
-            body: JSON.stringify(payload),
-          });
-        } catch (errPut: any) {
-          const msg = String(errPut?.message || "");
-          console.warn("PUT /setup/aset/:id gagal:", msg);
-
-          if (msg.includes("Cannot PUT /setup/aset")) {
-            await callApi(`/setup/aset/${editing.id}`, {
-              method: "DELETE",
-            });
-            await callApi("/setup/aset", {
-              method: "POST",
-              body: JSON.stringify(payload),
-            });
-          } else {
-            throw errPut;
-          }
-        }
+        await callApi(`/setup/aset/${editing.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
       } else {
         await callApi("/setup/aset", {
           method: "POST",
@@ -299,8 +284,10 @@ export default function SetupAsetPage() {
       closeFormModal();
     } catch (e: any) {
       console.error("Gagal menyimpan aset:", e);
-      const msg = cleanErrorMessage(e?.message || "Gagal menyimpan aset.");
-      setErr(msg || "Gagal menyimpan aset. Coba lagi nanti.");
+      const msg = cleanErrorMessage(
+        e?.message || "Gagal menyimpan data aset."
+      );
+      setErr(msg || "Gagal menyimpan data aset. Coba lagi nanti.");
     } finally {
       setSaving(false);
     }
@@ -333,11 +320,50 @@ export default function SetupAsetPage() {
       closeDeleteModal();
     } catch (e: any) {
       console.error("Gagal menghapus aset:", e);
-      const msg = cleanErrorMessage(e?.message || "Gagal menghapus aset.");
+      const msg = cleanErrorMessage(
+        e?.message || "Gagal menghapus aset."
+      );
       setErr(msg || "Gagal menghapus aset. Coba lagi nanti.");
     } finally {
       setDeletingId(null);
     }
+  }
+
+  /* ----- helpers UI ----- */
+
+  function formatKategoriHppBadge(value?: string | null) {
+    if (!value) return "-";
+    const v = value.toLowerCase();
+    const label = v === "produksi" ? "produksi" : "non-produksi";
+    const isProd = v === "produksi";
+    return (
+      <span
+        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+          isProd
+            ? "bg-green-100 text-green-700"
+            : "bg-gray-100 text-gray-700"
+        }`}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  function formatStatusBadge(value?: string | null) {
+    if (!value) return "-";
+    const v = value.toLowerCase();
+    let cls =
+      "bg-gray-100 text-gray-700"; /* default non-aktif */
+    if (v === "aktif") cls = "bg-emerald-100 text-emerald-700";
+    else if (v === "rusak") cls = "bg-orange-100 text-orange-700";
+
+    return (
+      <span
+        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${cls}`}
+      >
+        {value}
+      </span>
+    );
   }
 
   /* ----- render ----- */
@@ -356,29 +382,37 @@ export default function SetupAsetPage() {
 
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm">
         {/* header card */}
-        <div className="flex flex-col gap-4 px-6 py-5 md:flex-row md:items-center md:justify-between">
-          <button
-            onClick={openAddModal}
-            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
-          >
-            <span>Tambah Aset</span>
-            <Plus className="h-4 w-4" />
-          </button>
+        <div className="px-6 py-5">
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={openAddModal}
+              className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
+            >
+              <span>Tambah Aset</span>
+              <Plus className="h-4 w-4" />
+            </button>
 
-          <div className="relative w-full md:w-[420px]">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="ex : Monang"
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 pl-10 text-sm outline-none focus:border-gray-400"
-            />
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <p className="text-sm text-gray-500">
+              Kategori HPP <span className="font-semibold">produksi</span> akan
+              dipakai untuk menghitung depresiasi di Kalkulator HPP.
+            </p>
+
+            <div className="relative w-full md:w-[420px]">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari nama aset"
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 pl-10 text-sm outline-none focus:border-gray-400"
+              />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            </div>
           </div>
         </div>
 
         {err && (
-          <div className="mx-6 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-            {err}
+          <div className="mx-6 mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>{err}</span>
           </div>
         )}
 
@@ -388,10 +422,10 @@ export default function SetupAsetPage() {
             <thead>
               <tr className="text-left text-sm text-gray-500">
                 <th className="px-6 py-3 font-semibold">Nama Aset</th>
-                <th className="px-6 py-3 font-semibold">Kategori</th>
+                <th className="px-6 py-3 font-semibold">Kategori HPP</th>
                 <th className="px-6 py-3 font-semibold">Harga Beli</th>
-                <th className="px-6 py-3 font-semibold">Waktu Beli</th>
-                <th className="px-6 py-3 font-semibold">Nilai Ekonomis</th>
+                <th className="px-6 py-3 font-semibold">Nilai Residu</th>
+                <th className="px-6 py-3 font-semibold">Umur Ekonomis</th>
                 <th className="px-6 py-3 font-semibold">Status</th>
                 <th className="px-6 py-3 text-right font-semibold">
                   Edit / Hapus
@@ -428,24 +462,28 @@ export default function SetupAsetPage() {
                     className="border-t border-gray-100 hover:bg-gray-50/60"
                   >
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {row.nama}
+                      {row.nama_aset}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.kategori}
+                      {formatKategoriHppBadge(row.kategori_hpp)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {rupiah(row.harga_beli)}
+                      {row.harga_beli != null
+                        ? rupiah(row.harga_beli)
+                        : "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {formatWaktuBeliDisplay(row.waktu_beli)}
+                      {row.nilai_residu != null
+                        ? rupiah(row.nilai_residu)
+                        : "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.nilai_ekonomis_bulan != null
-                        ? `${row.nilai_ekonomis_bulan} Bulan`
-                        : "—"}
+                      {row.nilai_ekonomis != null
+                        ? `${row.nilai_ekonomis} th`
+                        : "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.status || "Aktif"}
+                      {formatStatusBadge(row.status)}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-3">
@@ -503,64 +541,98 @@ export default function SetupAsetPage() {
                 <input
                   value={namaAset}
                   onChange={(e) => setNamaAset(e.target.value)}
-                  placeholder="ex: Monang"
+                  placeholder="ex: Mesin Espresso, Kulkas 2 Pintu"
                   className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
                   required
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-800">
-                  Kategori
-                </label>
-                <input
-                  value={kategori}
-                  onChange={(e) => setKategori(e.target.value)}
-                  placeholder="ex: Bar, Kitchen, Kasir"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
-                  required
-                />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-800">
+                    Kategori (bebas)
+                  </label>
+                  <input
+                    value={kategori}
+                    onChange={(e) => setKategori(e.target.value)}
+                    placeholder="ex: Peralatan, Elektronik"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-800">
+                    Kategori HPP
+                  </label>
+                  <select
+                    value={kategoriHpp}
+                    onChange={(e) =>
+                      setKategoriHpp(
+                        e.target.value as "produksi" | "non-produksi" | ""
+                      )
+                    }
+                    className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                    required
+                  >
+                    <option value="">Pilih kategori HPP</option>
+                    <option value="produksi">Produksi (masuk HPP)</option>
+                    <option value="non-produksi">Non-produksi</option>
+                  </select>
+                  <p className="text-xs text-gray-500">
+                    Hanya aset dengan kategori HPP{" "}
+                    <span className="font-semibold">produksi</span> yang
+                    dipakai di perhitungan HPP.
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-800">
-                  Harga Beli
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={hargaBeli}
-                  onChange={(e) => setHargaBeli(e.target.value)}
-                  placeholder="ex: 1200000"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
-                  required
-                />
-              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-800">
+                    Harga Beli (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={hargaBeli}
+                    onChange={(e) => setHargaBeli(e.target.value)}
+                    placeholder="ex: 5000000"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                    required
+                  />
+                </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-800">
-                  Waktu Beli
-                </label>
-                <input
-                  type="date"
-                  value={waktuBeli}
-                  onChange={(e) => setWaktuBeli(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
-                />
-              </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-800">
+                    Nilai Residu (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={nilaiResidu}
+                    onChange={(e) => setNilaiResidu(e.target.value)}
+                    placeholder="ex: 500000"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Nilai perkiraan saat aset habis umur ekonomis.
+                  </p>
+                </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-800">
-                  Nilai Ekonomis (Bulan)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={nilaiEkonomis}
-                  onChange={(e) => setNilaiEkonomis(e.target.value)}
-                  placeholder="ex: 24"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
-                />
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-800">
+                    Umur Ekonomis (tahun)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={nilaiEkonomis}
+                    onChange={(e) => setNilaiEkonomis(e.target.value)}
+                    placeholder="ex: 5"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                    required
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -569,12 +641,18 @@ export default function SetupAsetPage() {
                 </label>
                 <select
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  onChange={(e) =>
+                    setStatus(
+                      e.target.value as "Aktif" | "Rusak" | "Non-Aktif" | ""
+                    )
+                  }
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-gray-400"
+                  required
                 >
+                  <option value="">Pilih status aset</option>
                   <option value="Aktif">Aktif</option>
-                  <option value="Non-Aktif">Non-Aktif</option>
                   <option value="Rusak">Rusak</option>
+                  <option value="Non-Aktif">Non-Aktif</option>
                 </select>
               </div>
 
@@ -611,12 +689,15 @@ export default function SetupAsetPage() {
               </button>
             </div>
             <h2 className="mb-3 text-2xl font-extrabold text-gray-900">
-              Yakin Ingin Menghapus
+              Yakin ingin menghapus
               <br />
-              Aset ini?
+              aset ini?
             </h2>
-            <p className="mb-8 text-sm font-medium text-gray-800">
-              {deleteModalRow.nama}
+            <p className="mb-1 text-sm font-medium text-gray-800">
+              {deleteModalRow.nama_aset}
+            </p>
+            <p className="mb-8 text-xs text-gray-500">
+              Aset yang dihapus tidak akan lagi dipakai dalam perhitungan HPP.
             </p>
 
             <div className="flex flex-col gap-3 md:flex-row">
@@ -643,3 +724,4 @@ export default function SetupAsetPage() {
     </div>
   );
 }
+
