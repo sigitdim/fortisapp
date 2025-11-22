@@ -8,6 +8,8 @@ import {
   type Product,
 } from "../_hooks/useProdukList";
 
+/* ========= helpers ========= */
+
 function classForPercent(pct: number) {
   if (pct >= 50) return "text-green-600";
   if (pct >= 20) return "text-amber-500";
@@ -29,6 +31,8 @@ function formatPercent(pct: number) {
   return `${Math.round(pct)}%`;
 }
 
+/* ========= page ========= */
+
 export default function PromoB1G1Page() {
   const { products, loading } = useProdukList();
   const list: Product[] =
@@ -37,11 +41,13 @@ export default function PromoB1G1Page() {
   const [menu1, setMenu1] = useState<string | null>(null);
   const [menu2, setMenu2] = useState<string | null>(null);
 
+  // default pilihan (menu1 = item 0, menu2 = item 1 kalau ada)
   useEffect(() => {
     if (!list.length) return;
     if (!menu1) setMenu1(list[0].id);
     if (!menu2) {
-      setMenu2(list[1] ? list[1].id : list[0].id);
+      const second = list.find((p) => p.id !== list[0].id);
+      setMenu2((second ?? list[0]).id);
     }
   }, [list, menu1, menu2]);
 
@@ -51,22 +57,24 @@ export default function PromoB1G1Page() {
       (list[0] as Product | undefined),
     [list, menu1]
   );
+
   const product2 = useMemo(
     () =>
       list.find((p) => p.id === menu2) ??
+      list.find((p) => p.id !== menu1) ??
       (list[1] as Product | undefined) ??
       product1,
-    [list, menu2, product1]
+    [list, menu2, menu1, product1]
   );
 
   if (!product1 || !product2) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] px-6 pb-10 pt-6">
+      <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
         <div className="mx-auto max-w-6xl">
-          <h1 className="text-2xl font-semibold text-gray-900">
+          <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
             Kalkulator Promo - Buy 1 Get 1
           </h1>
-          <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
+          <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-600">
               {loading
                 ? "Memuat daftar menu..."
@@ -78,6 +86,7 @@ export default function PromoB1G1Page() {
     );
   }
 
+  // ====== LOGIC B1G1 (tetap seperti versi lama) ======
   const paidPrice = product1.hargaJual;
   const totalCost =
     product1.hpp +
@@ -89,16 +98,30 @@ export default function PromoB1G1Page() {
   const afterTax = Math.round(paidPrice * 1.1);
   const onlineFood = Math.round(paidPrice * 1.15);
 
+  const profitMenu1 = calcProfitPercent(
+    product1.hpp + product1.overhead,
+    product1.hargaJual
+  );
+  const profitMenu2 = calcProfitPercent(
+    product2.hpp + product2.overhead,
+    product2.hargaJual
+  );
+
+  // list untuk dropdown kedua: jangan tampilkan menu yang sama
+  const optionsMenu2 = list.filter((p) => p.id !== (menu1 ?? ""));
+
   return (
-    <div className="min-h-screen bg-[#F5F5F5] px-6 pb-10 pt-6">
+    <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
       <div className="mx-auto max-w-6xl">
-        <h1 className="text-2xl font-semibold text-gray-900">
+        {/* TITLE */}
+        <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
           Kalkulator Promo - Buy 1 Get 1
         </h1>
 
-        <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
-          {/* Top selects */}
-          <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
+        <section className="mt-6 rounded-[28px] bg-white px-6 py-5 shadow-sm">
+          {/* ========= TOP ROW: PILIH MENU 1 & 2 + AI ========= */}
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+            {/* MENU 1 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
                 Pilih Menu 1
@@ -106,7 +129,7 @@ export default function PromoB1G1Page() {
               <select
                 value={menu1 ?? ""}
                 onChange={(e) => setMenu1(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                className="mt-2 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               >
                 {list.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -116,6 +139,7 @@ export default function PromoB1G1Page() {
               </select>
             </div>
 
+            {/* MENU 2 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
                 Pilih Menu 2
@@ -123,122 +147,153 @@ export default function PromoB1G1Page() {
               <select
                 value={menu2 ?? ""}
                 onChange={(e) => setMenu2(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                className="mt-2 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               >
-                {list.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                {optionsMenu2.length > 0
+                  ? optionsMenu2.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))
+                  : list.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
               </select>
             </div>
 
+            {/* BANTUAN AI */}
             <div className="flex items-end justify-start md:justify-end">
               <button
                 type="button"
-                onClick={() => alert("Bantuan AI akan segera tersedia")}
-                className="mt-4 h-10 rounded-full bg-red-600 px-4 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
+                onClick={() =>
+                  alert("Bantuan AI untuk B1G1 akan segera tersedia.")
+                }
+                className="mt-4 h-11 rounded-full bg-red-600 px-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
               >
                 Bantuan AI ➜
               </button>
             </div>
           </div>
 
-          {/* Cards + result */}
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_minmax(0,1.1fr)]">
-            {/* Dua kartu menu */}
-            <div className="grid gap-4 md:grid-cols-2">
-              {[product1, product2].map((p, idx) => {
-                const cost = p.hpp + p.overhead;
-                const pct = calcProfitPercent(cost, p.hargaJual);
-                return (
-                  <div
-                    key={p.id + idx}
-                    className="rounded-3xl border border-gray-200 bg-white p-5"
-                  >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {p.name}
-                      </h3>
-                      <span
-                        className={`text-sm font-semibold ${classForPercent(
-                          pct
-                        )}`}
-                      >
-                        {formatPercent(pct)}
-                      </span>
-                    </div>
-                    <div className="mt-4 space-y-1 text-sm">
-                      <div className="flex justify-between text-gray-600">
-                        <span>HPP</span>
-                        <span className="font-medium text-gray-900">
-                          {rupiah(p.hpp)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-gray-600">
-                        <span>Overhead</span>
-                        <span className="font-medium text-gray-900">
-                          {rupiah(p.overhead)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-gray-900 font-semibold">
-                        <span>Harga Jual</span>
-                        <span>{rupiah(p.hargaJual)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          {/* ========= 2 KARTU MENU ========= */}
+          <div className="mt-6 grid gap-6 md:grid-cols-2">
+            {/* Kartu Menu 1 */}
+            <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-5">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {product1.name}
+                </h3>
+                <span
+                  className={`text-sm font-semibold ${classForPercent(
+                    profitMenu1
+                  )}`}
+                >
+                  {formatPercent(profitMenu1)}
+                </span>
+              </div>
 
-            {/* Hasil */}
-            <div>
-              <div className="rounded-3xl border-2 border-red-500 bg-white p-5">
-                <p className="text-sm font-semibold text-gray-900">
-                  {product1.name}{" "}
-                  <span className="text-gray-500">+</span>{" "}
-                  {product2.name}{" "}
-                  <span className="text-gray-500">(Free)</span>
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
-                  {rupiah(paidPrice)}
-                </p>
-
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${badgeColorForPercent(
-                      profitPct
-                    )}`}
-                  >
-                    Profit {formatPercent(profitPct)}
+              <div className="mt-4 space-y-1 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>HPP</span>
+                  <span className="font-medium text-gray-900">
+                    {rupiah(product1.hpp)}
                   </span>
                 </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Overhead</span>
+                  <span className="font-medium text-gray-900">
+                    {rupiah(product1.overhead)}
+                  </span>
+                </div>
+                <div className="flex justify-between font-semibold text-gray-900">
+                  <span>Harga Jual</span>
+                  <span>{rupiah(product1.hargaJual)}</span>
+                </div>
+              </div>
+            </div>
 
-                <p className="mt-3 text-xs leading-relaxed text-gray-600">
-                  Promo ini mungkin akan susah dijalankan bila margin terlalu
-                  tipis. Pertimbangkan untuk membatasi periode promo atau
-                  minimal order agar tetap menguntungkan.
-                </p>
+            {/* Kartu Menu 2 */}
+            <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-5">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {product2.name}
+                </h3>
+                <span
+                  className={`text-sm font-semibold ${classForPercent(
+                    profitMenu2
+                  )}`}
+                >
+                  {formatPercent(profitMenu2)}
+                </span>
+              </div>
 
-                <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">
-                  <div>
-                    <p className="text-xs text-gray-500">(After Tax)</p>
-                    <p className="font-semibold">
-                      {rupiah(afterTax || 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">(Online Food)</p>
-                    <p className="font-semibold">
-                      {rupiah(onlineFood || 0)}
-                    </p>
-                  </div>
+              <div className="mt-4 space-y-1 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>HPP</span>
+                  <span className="font-medium text-gray-900">
+                    {rupiah(product2.hpp)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Overhead</span>
+                  <span className="font-medium text-gray-900">
+                    {rupiah(product2.overhead)}
+                  </span>
+                </div>
+                <div className="flex justify-between font-semibold text-gray-900">
+                  <span>Harga Jual</span>
+                  <span>{rupiah(product2.hargaJual)}</span>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div> 
+
+          {/* ========= HASIL PROMO B1G1 ========= */}
+          <div className="mt-6 rounded-[28px] border-2 border-red-500 bg-white px-6 py-5">
+            <p className="text-sm font-semibold text-gray-900">
+              {product1.name} <span className="text-gray-500">+</span>{" "}
+              {product2.name}{" "}
+              <span className="text-gray-500">(Free)</span>
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-gray-900">
+              {rupiah(paidPrice)}
+            </p>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${badgeColorForPercent(
+                  profitPct
+                )}`}
+              >
+                Profit {formatPercent(profitPct)}
+              </span>
+            </div>
+
+            <p className="mt-3 text-xs leading-relaxed text-gray-600">
+              Promo ini mungkin akan susah dijalankan bila margin terlalu
+              tipis. Pertimbangkan untuk membatasi periode promo atau
+              minimal order agar tetap menguntungkan.
+            </p>
+
+            <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">
+              <div>
+                <p className="text-xs text-gray-500">(After Tax)</p>
+                <p className="font-semibold">
+                  {rupiah(afterTax || 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">(Online Food)</p>
+                <p className="font-semibold">
+                  {rupiah(onlineFood || 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

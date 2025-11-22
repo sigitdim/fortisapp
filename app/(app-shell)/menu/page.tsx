@@ -18,7 +18,7 @@ type MenuRow = {
   nama_menu: string;
   // dari /menu → total_hpp (HPP bahan per porsi)
   hpp?: number | null;
-  // jika BE nanti ikut kirim overhead_per_porsi, kita tampung di sini
+  // dari /menu → overhead_per_porsi
   overhead_per_porsi?: number | null;
   harga_jual?: number | null;
   profit_persen?: number | null;
@@ -108,7 +108,7 @@ export default function MenuPage() {
   const [editTargetPorsi, setEditTargetPorsi] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  /* ----- load data dari /menu (sesuai kontrak BE baru) ----- */
+  /* ----- load data dari /menu (kontrak BE FINAL) ----- */
 
   async function fetchData() {
     setLoading(true);
@@ -122,48 +122,46 @@ export default function MenuPage() {
         ? (res as any)
         : [];
 
-      const mapped: MenuRow[] = raw.map((x: any, idx: number) => ({
-        id: String(x.id ?? x.menu_id ?? idx),
-        nama_menu: x.nama_menu ?? x.nama ?? "",
-        // BE: total_hpp = HPP bahan per porsi
-        hpp:
+      const mapped: MenuRow[] = raw.map((x: any, idx: number) => {
+        // optional: debug kalau mau cek lagi kontrak
+        // console.log("[menu] raw row:", x);
+
+        const hppValue =
           x.total_hpp != null
             ? Number(x.total_hpp)
-            : x.hpp_per_porsi != null
-            ? Number(x.hpp_per_porsi)
             : x.hpp != null
             ? Number(x.hpp)
-            : null,
-        // /menu secara desain tidak wajib punya overhead_per_porsi,
-        // tapi kalau BE nanti ikut kirim, kita baca di sini.
-        overhead_per_porsi:
-          x.overhead_per_porsi != null
-            ? Number(x.overhead_per_porsi)
-            : x.overhead != null
-            ? Number(x.overhead)
-            : null,
-        harga_jual:
-          x.harga_jual != null
-            ? Number(x.harga_jual)
-            : x.price != null
-            ? Number(x.price)
-            : null,
-        profit_persen:
-          x.profit_persen != null
-            ? Number(x.profit_persen)
-            : x.margin_persen != null
+            : null;
+
+        const overheadValue =
+          x.overhead_per_porsi != null ? Number(x.overhead_per_porsi) : null;
+
+        const hargaJualValue =
+          x.harga_jual != null ? Number(x.harga_jual) : null;
+
+        const profitPersenValue =
+          x.margin_persen != null
             ? Number(x.margin_persen)
-            : null,
-        target_porsi_bulanan:
+            : x.profit_persen != null
+            ? Number(x.profit_persen)
+            : null;
+
+        const targetBulananValue =
           x.target_porsi_bulanan != null
             ? Number(x.target_porsi_bulanan)
-            : x.target_perbulan != null
-            ? Number(x.target_perbulan)
-            : x.target_penjualan_bulanan != null
-            ? Number(x.target_penjualan_bulanan)
-            : null,
-        created_at: x.created_at,
-      }));
+            : null;
+
+        return {
+          id: String(x.id ?? x.menu_id ?? idx),
+          nama_menu: x.nama_menu ?? x.nama ?? "",
+          hpp: hppValue,
+          overhead_per_porsi: overheadValue,
+          harga_jual: hargaJualValue,
+          profit_persen: profitPersenValue,
+          target_porsi_bulanan: targetBulananValue,
+          created_at: x.created_at,
+        };
+      });
 
       console.log("[menu] mapped from /menu:", mapped);
       setRows(mapped);
@@ -268,15 +266,18 @@ export default function MenuPage() {
 
       const body: any = {
         nama_menu: editing.nama_menu,
+        // kontrak final BE → pakai target_porsi_bulanan
         target_porsi_bulanan: safeTarget,
-        target_perbulan: safeTarget,
       };
 
       if (editHargaJual.trim()) {
         const hargaNum = Number(editHargaJual.replace(",", "."));
         const safeHarga = Number.isNaN(hargaNum) ? 0 : hargaNum;
+        // kontrak final BE → pakai harga_jual
         body.harga_jual = safeHarga;
       }
+
+      console.log("[menu] PUT body /menu/:id =", body);
 
       await callApi(`/menu/${editing.id}`, {
         method: "PUT",
