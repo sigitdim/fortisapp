@@ -20,6 +20,7 @@ function HeaderActions() {
       const { data } = await supabase.auth.getUser();
       const nm =
         data?.user?.user_metadata?.full_name ||
+        (data?.user as any)?.raw_user_meta_data?.full_name ||
         data?.user?.email ||
         "Guest";
       setLabel((nm || "Guest").split("@")[0]);
@@ -97,6 +98,7 @@ function HeaderActions() {
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <OwnerProvider>
+
       <SidebarShell>
         {/* tombol akun kanan atas */}
         <div className="fixed top-4 right-4 z-50">

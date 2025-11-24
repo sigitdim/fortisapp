@@ -35,6 +35,23 @@ type Bahan = {
   nama: string;
   satuan?: string | null;
   harga?: number | null;
+
+  // kemungkinan nama field batas dari BE
+  ambang_batas?: number | null;
+  ambang_batas_stok?: number | null;
+  ambang_batas_stock?: number | null;
+  batas_minimum?: number | null;
+  batas_stok?: number | null;
+  batas_stock?: number | null;
+  min_stock?: number | null;
+  min_stok?: number | null;
+  min_qty?: number | null;
+  stok_min?: number | null;
+  stok_minimum?: number | null;
+  threshold?: number | null;
+  batas?: number | null;
+
+  [key: string]: any;
 };
 
 type SummaryItem = {
@@ -76,20 +93,21 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
 
   const text = await res.text();
 
-  // Kalau HTML, berarti error dari server (Cloudflare / Supabase / Nginx)
   if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-    throw new Error("Server API tidak bisa diakses (HTML error).");
+    throw new Error('Server API tidak bisa diakses (HTML error).');
   }
 
   let json: any = {};
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    throw new Error("Response bukan JSON valid.");
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error('Response bukan JSON valid.');
+    }
   }
 
   if (!res.ok || (json && json.ok === false)) {
-    throw new Error(json?.message || res.statusText || "Request failed");
+    throw new Error(json?.message || res.statusText || 'Request failed');
   }
 
   return (json?.data ?? json) as T;
@@ -102,7 +120,7 @@ function Skeleton({ className = '' }: { className?: string }) {
   return (
     <div
       className={cn(
-        'animate-pulse rounded-lg bg-gray-100 dark:bg-slate-800',
+        'animate-pulse rounded-lg bg-gray-100',
         className,
       )}
     />
@@ -128,16 +146,16 @@ export function InventoryWidget() {
   const [history, setHistory] = useState<LogItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // modal edit
   const [editingItem, setEditingItem] = useState<SummaryItem | null>(null);
   const [editHarga, setEditHarga] = useState<string>('');
- const [editBatas, setEditBatas] = useState<string>('');  
-const [savingEdit, setSavingEdit] = useState(false);
+  const [editBatas, setEditBatas] = useState<string>('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // modal delete
   const [confirmDelete, setConfirmDelete] = useState<SummaryItem | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // modal tambah inventory (IN/OUT)
   const [showAddModal, setShowAddModal] = useState(false);
@@ -167,7 +185,7 @@ const [savingEdit, setSavingEdit] = useState(false);
     setLoading(true);
     setErr(null);
     try {
-      /* 1) Ambil semua bahan dari Setup (SSOT nama + harga + satuan) */
+      /* 1) Ambil semua bahan dari Setup (SSOT nama + harga + satuan + batas) */
       const bahanRes = await apiGet<any>(`/setup/bahan?t=${Date.now()}`);
       const rawBahan = bahanRes as any;
       const bahanArr = Array.isArray(rawBahan?.data)
@@ -177,17 +195,23 @@ const [savingEdit, setSavingEdit] = useState(false);
         : rawBahan?.items ?? [];
 
       const bahanList: Bahan[] = bahanArr
-        .map((b: any) => ({
-          id: b.id,
-          nama: b.nama_bahan ?? b.nama ?? '',
-          satuan: b.satuan ?? b.unit ?? null,
-          harga:
+        .map((b: any) => {
+          const harga =
             b.harga != null
               ? Number(b.harga)
               : b.harga_satuan != null
               ? Number(b.harga_satuan)
-              : null,
-        }))
+              : null;
+
+          // spread dulu supaya semua field batas ikut masuk
+          return {
+            ...b,
+            id: b.id,
+            nama: b.nama_bahan ?? b.nama ?? '',
+            satuan: b.satuan ?? b.unit ?? null,
+            harga,
+          } as Bahan;
+        })
         .filter((b: Bahan) => b.id && b.nama);
 
       /* 2) Ambil inventory summary (stok per bahan, optional) */
@@ -211,77 +235,66 @@ const [savingEdit, setSavingEdit] = useState(false);
         if (key) summaryMap[key] = x;
       });
 
-      // 3) COMBINED LIST: looping dari Setup Bahan, suntik stok dari summary
-const combined: SummaryItem[] = bahanList.map((b) => {
-  const s = summaryMap[b.id] || {};
+      /* 3) COMBINED LIST: looping dari Setup Bahan, suntik stok + batas */
+      const combined: SummaryItem[] = bahanList.map((b) => {
+        const s = summaryMap[b.id] || {};
 
-  // cari batas dari summary (inventory)
-  const batasFromSummary =
-    s.ambang_batas ??
-    s.ambang_batas_stok ??
-    s.ambang_batas_stock ??
-    s.batas_minimum ??
-    s.batas_stok ??
-    s.batas_stock ??
-    s.min_stock ??
-    s.min_stok ??
-    s.min_qty ??
-    s.stok_min ??
-    s.stok_minimum ??
-    s.threshold ??
-    s.batas ??
-    null;
+        const batasFromSummary =
+          s.ambang_batas ??
+          s.ambang_batas_stok ??
+          s.ambang_batas_stock ??
+          s.batas_minimum ??
+          s.batas_stok ??
+          s.batas_stock ??
+          s.min_stock ??
+          s.min_stok ??
+          s.min_qty ??
+          s.stok_min ??
+          s.stok_minimum ??
+          s.threshold ??
+          s.batas ??
+          null;
 
-  // fallback: kalau BE naro batas di tabel bahan (setup)
-  const batasFromSetup =
-    b.ambang_batas ??
-    b.ambang_batas_stok ??
-    b.batas_minimum ??
-    b.batas_stok ??
-    b.min_stock ??
-    b.min_stok ??
-    b.stok_min ??
-    b.stok_minimum ??
-    b.threshold ??
-    b.batas ??
-    null;
+        const batasFromSetup =
+          b.ambang_batas ??
+          b.ambang_batas_stok ??
+          b.ambang_batas_stock ??
+          b.batas_minimum ??
+          b.batas_stok ??
+          b.batas_stock ??
+          b.min_stock ??
+          b.min_stok ??
+          b.min_qty ??
+          b.stok_min ??
+          b.stok_minimum ??
+          b.threshold ??
+          b.batas ??
+          null;
 
-  const finalBatas = batasFromSummary ?? batasFromSetup ?? null;
+        const finalBatas = batasFromSummary ?? batasFromSetup ?? null;
 
-  const hargaSummary =
-    s.harga_per_unit ?? s.harga_satuan ?? s.harga ?? s.price ?? null;
+        const hargaSummary =
+          s.harga_per_unit ?? s.harga_satuan ?? s.harga ?? s.price ?? null;
 
-  return {
-    bahan_id: b.id,
-    bahan_nama: b.nama,
-    saldo: Number(s.saldo ?? s.stok_total ?? 0),
-    satuan: b.satuan ?? s.satuan ?? s.unit ?? '-',
-    status: s.status ?? undefined,
-    harga:
-      b.harga != null
-        ? Number(b.harga)
-        : hargaSummary != null
-        ? Number(hargaSummary)
-        : null,
-    // BATAS sekarang keisi kalau salah satu field di atas ada
-    batas: finalBatas != null ? Number(finalBatas) : null,
-  };
-});
+        return {
+          bahan_id: b.id,
+          bahan_nama: b.nama,
+          saldo: Number(s.saldo ?? s.stok_total ?? 0),
+          satuan: b.satuan ?? s.satuan ?? s.unit ?? '-',
+          status: s.status ?? undefined,
+          harga:
+            b.harga != null
+              ? Number(b.harga)
+              : hargaSummary != null
+              ? Number(hargaSummary)
+              : null,
+          batas: finalBatas != null ? Number(finalBatas) : null,
+        };
+      });
 
       setSummary(combined);
 
-      /* SELECTION BEHAVIOUR:
-         - Tidak auto pilih baris pertama.
-         - Kalau sebelumnya ada selectedId tapi itemnya sudah hilang, reset ke null.
-      */
-      if (selectedId) {
-        const stillExists = combined.some((s) => s.bahan_id === selectedId);
-        if (!stillExists) {
-          setSelectedId(null);
-        }
-      }
-
-      /* 4) History 7 hari (untuk grafik + riwayat) */
+      /* 4) History 7 hari (untuk grafik + riwayat per-bahan) */
       try {
         const until = new Date();
         const since = new Date(Date.now() - 7 * 86400000);
@@ -314,7 +327,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
     load();
   }, []);
 
-  // Listener global reload
+  // listener global dari tempat lain
   useEffect(() => {
     const h = () => load();
     window.addEventListener('inv:summary-reload', h as any);
@@ -392,7 +405,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
   const openEditModal = (item: SummaryItem) => {
     setEditingItem(item);
     setEditHarga(item.harga != null ? String(item.harga) : '');
-    setEditBatas(item.batas != null ? String(item.batas) : ''); // isi awal dari batas
+    setEditBatas(item.batas != null ? String(item.batas) : '');
   };
 
   const closeEditModal = () => {
@@ -418,11 +431,12 @@ const combined: SummaryItem[] = bahanList.map((b) => {
         harga: hargaNumber,
       };
 
-      // kirim batas kalau diisi
       if (batasNumber != null) {
-        payload.ambang_batas_stock = batasNumber; // kemungkinan nama field BE
-        payload.batas_minimum = batasNumber;      // fallback lain
-        payload.min_stock = batasNumber;          // fallback lain
+        // kirim ke beberapa kandidat field
+        payload.ambang_batas_stock = batasNumber;
+        payload.ambang_batas = batasNumber;
+        payload.batas_minimum = batasNumber;
+        payload.min_stock = batasNumber;
       }
 
       await apiPut(`/setup/bahan/${editingItem.bahan_id}`, payload);
@@ -530,53 +544,43 @@ const combined: SummaryItem[] = bahanList.map((b) => {
 
   return (
     <>
+      {/* Title ala Figma */}
+      <h2 className="mb-3 text-xl md:text-2xl font-semibold text-slate-900">
+        Inventory
+      </h2>
+
       {/* grid: kalau belum ada yang kepilih, 1 kolom; kalau ada, 2 kolom */}
       <div
         className={cn(
-          'mt-4 grid gap-4',
+          'mt-1 grid gap-4',
           hasSelected && 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]',
         )}
       >
         {/* LEFT: List Inventory */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-4 md:p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-lg md:text-2xl font-semibold">Inventory</h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-full bg-red-700 hover:bg-red-800 text-white text-sm px-4 py-2"
-                onClick={openAddModal}
-              >
-                <Plus className="h-4 w-4" />
-                <span>Tambah +</span>
-              </button>
-              <div className="relative hidden sm:block">
-                <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Cari bahan..."
-                  className="w-48 rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-7 pr-3 py-1.5 text-sm"
-                />
-              </div>
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-5">
+          {/* Toolbar di dalam kartu: Tambah + Search (kayak desain kedua) */}
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="inline-flex items-center justify-center rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+            >
+              Tambah +
+            </button>
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari bahan..."
+                className="w-full rounded-full border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm text-gray-700 placeholder:text-gray-400"
+              />
             </div>
           </div>
 
-          {/* Search mobile */}
-          <div className="relative mb-3 sm:hidden">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari bahan..."
-              className="w-full rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-
           {err && (
-            <div className="mb-2 text-xs text-red-600 dark:text-rose-400">
+            <div className="mb-2 text-xs text-red-600">
               {err}
             </div>
           )}
@@ -584,21 +588,23 @@ const combined: SummaryItem[] = bahanList.map((b) => {
           {loading ? (
             <Skeleton className="h-52" />
           ) : filteredSummary.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-500 dark:text-slate-400">
+            <div className="py-10 text-center text-sm text-gray-500">
               Belum ada data inventory.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                  <tr className="border-b text-xs uppercase tracking-wide text-gray-500">
                     <th className="py-2 pr-3 text-left font-medium">Nama</th>
                     <th className="py-2 px-3 text-left font-medium">Harga</th>
                     <th className="py-2 px-3 text-left font-medium">
                       Sisa Stock
                     </th>
                     <th className="py-2 px-3 text-left font-medium">Batas</th>
-                    <th className="py-2 pl-3 text-center font-medium">Action</th>
+                    <th className="py-2 pl-3 text-center font-medium">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,8 +623,8 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                         className={cn(
                           'cursor-pointer border-b last:border-b-0 transition-colors',
                           active
-                            ? 'bg-red-50/70 dark:bg-red-900/20'
-                            : 'hover:bg-gray-50 dark:hover:bg-slate-800',
+                            ? 'bg-red-50/70'
+                            : 'hover:bg-gray-50',
                         )}
                         // TOGGLE: klik lagi bahan yg sama => hide panel
                         onClick={() =>
@@ -630,7 +636,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                         <td className="py-2 pr-3">
                           <button
                             type="button"
-                            className="max-w-[200px] text-left text-sm font-medium text-blue-700 hover:underline truncate"
+                            className="max-w-[200px] text-left text-sm font-semibold text-slate-900 hover:underline truncate"
                             title={displayName}
                           >
                             {displayName}
@@ -694,7 +700,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 24 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-4 md:p-5"
+              className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-5"
             >
               {loading ? (
                 <Skeleton className="h-64" />
@@ -714,7 +720,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                      <p className="mt-1 text-xs text-gray-500">
                         Ambang batas stok:{' '}
                         {selectedItem.batas
                           ? formatQty(selectedItem.batas, selectedItem.satuan)
@@ -722,7 +728,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                       </p>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">
                         Sisa Stok
                       </div>
                       <div className="text-2xl md:text-3xl font-bold">
@@ -732,9 +738,9 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                   </div>
 
                   {/* Grafik */}
-                  <div className="mb-4 rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 px-3 py-3">
+                  <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3">
                     {chartData.length === 0 ? (
-                      <div className="flex h-40 items-center justify-center text-xs text-gray-500 dark:text-slate-400">
+                      <div className="flex h-40 items-center justify-center text-xs text-gray-500">
                         Belum ada mutasi stok 7 hari terakhir untuk bahan ini.
                       </div>
                     ) : (
@@ -812,7 +818,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                       Riwayat Transaksi Terakhir
                     </div>
                     {latest10.length === 0 ? (
-                      <div className="text-xs text-gray-500 dark:text-slate-400">
+                      <div className="text-xs text-gray-500">
                         Belum ada transaksi untuk bahan ini.
                       </div>
                     ) : (
@@ -835,7 +841,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                               return (
                                 <tr
                                   key={r.id}
-                                  className="border-b last:border-b-0 border-gray-100 dark:border-slate-800"
+                                  className="border-b last:border-b-0 border-gray-100"
                                 >
                                   <td className="py-1 pr-2 align-top">
                                     <span
@@ -861,7 +867,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                                     {Math.abs(r.qty).toLocaleString('id-ID')}{' '}
                                     {r.satuan || selectedItem.satuan || ''}
                                   </td>
-                                  <td className="py-1 px-2 align-top text-gray-500 dark:text-slate-400 whitespace-nowrap">
+                                  <td className="py-1 px-2 align-top text-gray-500 whitespace-nowrap">
                                     {new Date(
                                       r.created_at,
                                     ).toLocaleDateString('id-ID', {
@@ -870,7 +876,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                                       year: 'numeric',
                                     })}
                                   </td>
-                                  <td className="py-1 px-2 align-top text-gray-500 dark:text-slate-400">
+                                  <td className="py-1 px-2 align-top text-gray-500">
                                     {r.catatan || '-'}
                                   </td>
                                 </tr>
@@ -888,61 +894,62 @@ const combined: SummaryItem[] = bahanList.map((b) => {
         </AnimatePresence>
       </div>
 
-      {/* MODAL2 & TOAST tetap sama seperti sebelumnya */}
-
-      {/* ========== MODAL EDIT HARGA ========== */}
+      {/* ========== MODAL EDIT HARGA/BATAS ========== */}
       {editingItem && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 shadow-lg border border-gray-200 dark:border-slate-700 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold">Ubah Data Bahan</h3>
-        <button
-          type="button"
-          onClick={closeEditModal}
-          className="text-gray-400 hover:text-gray-600"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-lg border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold">Ubah Data Bahan</h3>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
 
-      <div className="mb-2 text-xs text-gray-500 dark:text-slate-400">
-        {editingItem.bahan_nama}
-      </div>
+            <div className="mb-2 text-xs text-gray-500">
+              {editingItem.bahan_nama}
+            </div>
 
-      {/* Harga */}
-      <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-        Harga Satuan
-      </label>
-      <input
-        type="text"
-        value={editHarga}
-        onChange={(e) => setEditHarga(e.target.value)}
-        placeholder="Masukkan harga (contoh: 5000)"
-        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-      />
-      <p className="mt-1 text-[11px] text-gray-500 dark:text-slate-400 mb-3">
-        Perubahan harga di sini akan otomatis mengubah harga di Setup Bahan.
-      </p>
+            {/* Harga */}
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Harga Satuan
+            </label>
+            <input
+              type="text"
+              value={editHarga}
+              onChange={(e) => setEditHarga(e.target.value)}
+              placeholder="Masukkan harga (contoh: 5000)"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-gray-500 mb-3">
+              Perubahan harga di sini akan otomatis mengubah harga di Setup
+              Bahan.
+            </p>
 
-      {/* Batas / ambang stok */}
-      <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
-        Batas Minimal Stok (opsional)
-      </label>
-      <input
-        type="text"
-        value={editBatas}
-        onChange={(e) => setEditBatas(e.target.value)}
-        placeholder="Contoh: 1000"
-        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-      />
-      <p className="mt-1 text-[11px] text-gray-500 dark:text-slate-400">
-        Jika diisi, stok di bawah angka ini akan dianggap <b>Low Stock</b> di halaman Inventory.
-      </p>
+            {/* Batas / ambang stok */}
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Batas Minimal Stok (opsional)
+            </label>
+            <input
+              type="text"
+              value={editBatas}
+              onChange={(e) => setEditBatas(e.target.value)}
+              placeholder="Contoh: 1000"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-gray-500">
+              Jika diisi, stok di bawah angka ini akan dianggap{' '}
+              <b>Low Stock</b> di halaman Inventory.
+            </p>
+
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={closeEditModal}
-                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200"
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-700"
               >
                 Batal
               </button>
@@ -965,7 +972,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
       {/* ========== MODAL DELETE ========== */}
       {confirmDelete && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 shadow-lg border border-gray-200 dark:border-slate-700 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-red-700">
                 Hapus Bahan
@@ -978,10 +985,10 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-gray-700 dark:text-slate-200 mb-3">
+            <p className="text-xs text-gray-700 mb-3">
               Yakin ingin menghapus bahan{' '}
               <span className="font-semibold">
-                {confirmDelete.bahan_nama}
+                {confirmDelete.bahan_nama || confirmDelete.bahan_id}
               </span>{' '}
               dari Setup? Data inventory yang terkait bahan ini juga akan
               terpengaruh.
@@ -990,7 +997,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
               <button
                 type="button"
                 onClick={closeDeleteModal}
-                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200"
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-700"
               >
                 Batal
               </button>
@@ -1016,7 +1023,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
       {/* ========== MODAL TAMBAH INVENTORY (IN/OUT) ========== */}
       {showAddModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-xl border border-gray-200 dark:border-slate-700 px-6 py-6">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-xl border border-gray-200 px-6 py-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg md:text-xl font-semibold">
                 Update Inventory
@@ -1031,14 +1038,14 @@ const combined: SummaryItem[] = bahanList.map((b) => {
             </div>
 
             {/* Pilih stock */}
-            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-200 mb-1">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
               Pilih Stock
             </label>
             <div className="relative mb-4">
               <button
                 type="button"
                 onClick={() => setShowStockDropdown((v) => !v)}
-                className="flex w-full items-center justify-between rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
               >
                 <span className="truncate">
                   {addSelectedItem?.bahan_nama || 'Pilih bahan'}
@@ -1046,7 +1053,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                 <ChevronDown className="h-4 w-4 text-gray-400" />
               </button>
               {showStockDropdown && (
-                <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg text-sm">
+                <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg text-sm">
                   {summary.map((s) => (
                     <button
                       key={s.bahan_id}
@@ -1056,9 +1063,9 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                         setShowStockDropdown(false);
                       }}
                       className={cn(
-                        'flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-slate-800',
+                        'flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50',
                         addBahanId === s.bahan_id &&
-                          'bg-red-50/80 dark:bg-red-900/30',
+                          'bg-red-50/80',
                       )}
                     >
                       <span className="truncate">{s.bahan_nama}</span>
@@ -1087,7 +1094,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                   'w-1/2 rounded-full border px-3 py-2 text-xs font-semibold',
                   addType === 'in'
                     ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                    : 'bg-white dark:bg-slate-900 text-gray-600 border-gray-200 dark:border-slate-700',
+                    : 'bg-white text-gray-600 border-gray-200',
                 )}
               >
                 IN
@@ -1102,7 +1109,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                   'w-1/2 rounded-full border px-3 py-2 text-xs font-semibold',
                   addType === 'out'
                     ? 'bg-red-100 text-red-700 border-red-300'
-                    : 'bg-white dark:bg-slate-900 text-gray-600 border-gray-200 dark:border-slate-700',
+                    : 'bg-white text-gray-600 border-gray-200',
                 )}
               >
                 OUT
@@ -1112,7 +1119,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
             {/* Harga Beli hanya untuk IN */}
             {addType === 'in' && (
               <>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-200 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
                   Harga Beli
                 </label>
                 <input
@@ -1120,17 +1127,17 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                   value={addHarga}
                   onChange={(e) => setAddHarga(e.target.value)}
                   placeholder="Optional, contoh: 50000"
-                  className="mb-4 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  className="mb-4 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
                 />
               </>
             )}
 
             {/* Jumlah */}
             <div className="mb-1 flex items-center justify-between">
-              <label className="block text-xs font-semibold text-gray-700 dark:text-slate-200">
+              <label className="block text-xs font-semibold text-gray-700">
                 Jumlah
               </label>
-              <span className="text-xs text-gray-500 dark:text-slate-400">
+              <span className="text-xs text-gray-500">
                 Satuan: {addSelectedItem?.satuan || '-'}
               </span>
             </div>
@@ -1140,9 +1147,9 @@ const combined: SummaryItem[] = bahanList.map((b) => {
                 value={addQty}
                 onChange={(e) => setAddQty(e.target.value)}
                 placeholder="Masukkan jumlah"
-                className="flex-1 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
               />
-              <div className="w-16 text-center text-sm font-semibold text-gray-700 dark:text-slate-200">
+              <div className="w-16 text-center text-sm font-semibold text-gray-700">
                 {addSelectedItem?.satuan || ''}
               </div>
             </div>
@@ -1167,7 +1174,7 @@ const combined: SummaryItem[] = bahanList.map((b) => {
         <div className="fixed top-20 right-6 z-50">
           <div
             className={cn(
-              'rounded-2xl px-4 py-3 text-sm shadow-lg border flex items-center gap-2 bg-white dark:bg-slate-900',
+              'rounded-2xl px-4 py-3 text-sm shadow-lg border flex items-center gap-2 bg-white',
               toastType === 'success'
                 ? 'border-emerald-200 text-emerald-700'
                 : 'border-red-200 text-red-700',
@@ -1185,4 +1192,3 @@ const combined: SummaryItem[] = bahanList.map((b) => {
 }
 
 export default InventoryWidget;
-
