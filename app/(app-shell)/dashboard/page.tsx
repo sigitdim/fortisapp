@@ -97,34 +97,35 @@ export default function DashboardPage() {
 
   const LOW_STOCK_PARAM = 20;
 
-  /* ===== Ambil nama user dari Supabase ===== */
+  /* ===== Ambil user + owner_id dari Supabase (SSOT multi user v2) ===== */
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const nm =
-        data?.user?.user_metadata?.full_name ||
-        data?.user?.email ||
-        'User';
-      setUserName(nm.split('@')[0]);
+      try {
+        const { data } = await supabase.auth.getUser();
+        const user = data?.user;
+
+        const nm =
+          (user?.user_metadata as any)?.full_name ||
+          user?.email ||
+          'User';
+        setUserName(nm.split('@')[0]);
+
+        const oid =
+          (user?.user_metadata as any)?.owner_id ||
+          (user?.user_metadata as any)?.owner ||
+          '';
+
+        setOwnerId(oid || '');
+      } catch {
+        setUserName('User');
+        setOwnerId('');
+      }
     })();
   }, [supabase]);
 
-  /* ===== Ambil owner_id dari localStorage ===== */
-  useEffect(() => {
-    try {
-      const ls =
-        typeof window !== 'undefined'
-          ? window.localStorage.getItem('owner_id')
-          : null;
-      if (ls) setOwnerId(ls);
-      else setOwnerId('');
-    } catch {
-      setOwnerId('');
-    }
-  }, []);
-
   /* ===== Loader utama dashboard ===== */
   async function load() {
+    // tunggu sampai ownerId kebaca (undefined = belum siap)
     if (ownerId === undefined) return;
 
     try {
@@ -140,8 +141,8 @@ export default function DashboardPage() {
         api('/promo', { headers }),
       ]);
 
-      // overview
-      const d: Overview = overviewRes?.data ?? overviewRes ?? {};
+      // overview dari BE
+      const d: Overview = overviewRes?.data ?? overviewRes ?? ({} as any);
       const normalized: Overview = {
         margin_top: Array.isArray(d?.margin_top) ? d.margin_top : [],
         margin_bottom: Array.isArray(d?.margin_bottom)
@@ -161,12 +162,12 @@ export default function DashboardPage() {
       };
       setOv(normalized);
 
-      // menu
+      // menu: sumber HPP + overhead + margin (harus match /menu & promo)
       const menuData: any = menuRes?.data ?? menuRes ?? [];
       const list: MenuItem[] = Array.isArray(menuData) ? menuData : [];
       setMenus(list);
 
-      // promo (dari kalkulator promo)
+      // promo: ambil langsung dari kalkulator promo (diskon/bundling/b1g1/tebus)
       const promoData: any = promoRes?.data ?? promoRes ?? [];
       const promoList: PromoItem[] = Array.isArray(promoData)
         ? promoData
@@ -190,7 +191,7 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId]);
 
-  /* ===== KPI dari MENU ===== */
+  /* ===== KPI dari MENU (harus sama dengan Daftar Menu & Promo) ===== */
 
   const totalProduk = useMemo(() => {
     if (ov?.meta?.total_produk != null) return ov.meta.total_produk;
@@ -279,7 +280,7 @@ export default function DashboardPage() {
         return db - da;
       });
 
-      const sliced = sorted.slice(0, 5); // ambil 5 promo terbaru
+      const sliced = sorted.slice(0, 5); // 5 promo terbaru
 
       return sliced.map((p) => {
         const rawType = (p.type || '').toLowerCase();
@@ -313,7 +314,7 @@ export default function DashboardPage() {
         return {
           nama: p.nama || '-',
           rekomendasi: rekom,
-          // sementara alasan generik; kalau BE nanti kirim alasan, tinggal ganti
+          // nanti kalau BE kirim alasan spesifik bisa diganti
           alasan: 'Promo terbaru dari kalkulator promo.',
         };
       });
@@ -608,10 +609,7 @@ function MiniTable({
 
 function rupiah(n?: number | null) {
   if (n == null || Number.isNaN(n)) return '-';
-  return (
-    'Rp ' +
-    new Intl.NumberFormat('id-ID').format(Math.round(n))
-  );
+  return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(n));
 }
 
 function num(n?: number | null) {

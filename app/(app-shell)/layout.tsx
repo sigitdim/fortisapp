@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import OwnerProvider from "@/app/providers/owner-provider";
+import OwnerProvider from "@/components/OwnerProvider";
 import SidebarShell from "@/components/SidebarShell";
 import { MoreVertical } from "lucide-react";
 
@@ -98,7 +98,6 @@ function HeaderActions() {
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <OwnerProvider>
-
       <SidebarShell>
         {/* tombol akun kanan atas */}
         <div className="fixed top-4 right-4 z-50">

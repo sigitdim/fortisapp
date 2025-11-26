@@ -4,12 +4,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, Search, X, AlertCircle } from "lucide-react";
 import { SetupTabs } from "../_components/SetupTabs";
 import SuccessToast from "@/components/SuccessToast";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ========= config ========= */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
@@ -55,11 +55,10 @@ async function callApi(
 
   const mergedHeaders: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
     ...(headers || {}),
   };
 
-  const res = await fetch(url, {
+  const res = await ownerFetch(url, {
     ...rest,
     headers: mergedHeaders,
     cache: "no-store",
@@ -97,11 +96,15 @@ export default function SetupAsetPage() {
 
   const [namaAset, setNamaAset] = useState("");
   const [kategori, setKategori] = useState("");
-  const [kategoriHpp, setKategoriHpp] = useState<"produksi" | "non-produksi" | "">("");
+  const [kategoriHpp, setKategoriHpp] = useState<
+    "produksi" | "non-produksi" | ""
+  >("");
   const [hargaBeli, setHargaBeli] = useState("");
   const [nilaiEkonomis, setNilaiEkonomis] = useState("");
   const [nilaiResidu, setNilaiResidu] = useState("");
-  const [status, setStatus] = useState<"Aktif" | "Rusak" | "Non-Aktif" | "">("");
+  const [status, setStatus] = useState<"Aktif" | "Rusak" | "Non-Aktif" | "">(
+    ""
+  );
 
   const [deleteModalRow, setDeleteModalRow] = useState<Aset | null>(null);
 
@@ -165,9 +168,7 @@ export default function SetupAsetPage() {
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) =>
-      (r.nama_aset || "").toLowerCase().includes(q)
-    );
+    return rows.filter((r) => (r.nama_aset || "").toLowerCase().includes(q));
   }, [rows, query]);
 
   /* ----- form helpers ----- */
@@ -320,9 +321,7 @@ export default function SetupAsetPage() {
       closeDeleteModal();
     } catch (e: any) {
       console.error("Gagal menghapus aset:", e);
-      const msg = cleanErrorMessage(
-        e?.message || "Gagal menghapus aset."
-      );
+      const msg = cleanErrorMessage(e?.message || "Gagal menghapus aset.");
       setErr(msg || "Gagal menghapus aset. Coba lagi nanti.");
     } finally {
       setDeletingId(null);
@@ -339,9 +338,7 @@ export default function SetupAsetPage() {
     return (
       <span
         className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-          isProd
-            ? "bg-green-100 text-green-700"
-            : "bg-gray-100 text-gray-700"
+          isProd ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
         }`}
       >
         {label}
@@ -352,8 +349,7 @@ export default function SetupAsetPage() {
   function formatStatusBadge(value?: string | null) {
     if (!value) return "-";
     const v = value.toLowerCase();
-    let cls =
-      "bg-gray-100 text-gray-700"; /* default non-aktif */
+    let cls = "bg-gray-100 text-gray-700"; // default non-aktif
     if (v === "aktif") cls = "bg-emerald-100 text-emerald-700";
     else if (v === "rusak") cls = "bg-orange-100 text-orange-700";
 
@@ -468,14 +464,10 @@ export default function SetupAsetPage() {
                       {formatKategoriHppBadge(row.kategori_hpp)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.harga_beli != null
-                        ? rupiah(row.harga_beli)
-                        : "-"}
+                      {row.harga_beli != null ? rupiah(row.harga_beli) : "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
-                      {row.nilai_residu != null
-                        ? rupiah(row.nilai_residu)
-                        : "-"}
+                      {row.nilai_residu != null ? rupiah(row.nilai_residu) : "-"}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-800">
                       {row.nilai_ekonomis != null
@@ -724,4 +716,3 @@ export default function SetupAsetPage() {
     </div>
   );
 }
-

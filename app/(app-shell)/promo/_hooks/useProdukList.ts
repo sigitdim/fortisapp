@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { apiGet } from "@/lib/api";
 
 export type Product = {
@@ -23,6 +24,8 @@ export const fallbackProducts: Product[] = [
   },
 ];
 
+/* ========= utils umum ========= */
+
 function toNumberLike(value: any): number {
   if (value == null) return 0;
   if (typeof value === "number") return value;
@@ -39,7 +42,6 @@ function toNumberLike(value: any): number {
 function mapRawToProducts(raw: any[]): Product[] {
   return raw
     .map((item, idx) => {
-      // id & nama menu
       const id =
         item.id ??
         item.menu_id ??
@@ -57,11 +59,7 @@ function mapRawToProducts(raw: any[]): Product[] {
 
       if (!id || !name) return null;
 
-      // CATATAN PENTING:
-      // Di sini kita TIDAK lagi menganggap hpp_per_porsi sebagai "HPP / porsi (bahan)"
-      // karena HPP bahan sudah kita ambil dari /menu.
-      // /hpp sekarang hanya dipakai untuk OVERHEAD + PROFIT + fallback harga_jual.
-
+      // Di sini HPP kita set 0 supaya TIDAK menimpa HPP dari /menu
       const overheadRaw =
         item.overhead_per_porsi ??
         item.overhead_porsi ??
@@ -84,7 +82,6 @@ function mapRawToProducts(raw: any[]): Product[] {
       const product: Product = {
         id: String(id),
         name: String(name),
-        // HPP sengaja 0 di sini, supaya tidak meng-overwrite HPP dari /menu
         hpp: 0,
         overhead: toNumberLike(overheadRaw),
         hargaJual: toNumberLike(hargaJualRaw),
@@ -104,8 +101,11 @@ function mapRawToProducts(raw: any[]): Product[] {
     .filter(Boolean) as Product[];
 }
 
-async function tryLoadFromHpp(): Promise<Product[] | null> {
-  const res: any = await apiGet("/hpp");
+async function tryLoadFromHpp(ownerId: string | null): Promise<Product[] | null> {
+  const headers: any = {};
+  if (ownerId) headers["x-owner-id"] = ownerId;
+
+  const res: any = await apiGet("/hpp", { headers });
 
   const candidates = [
     res,
@@ -125,11 +125,14 @@ async function tryLoadFromHpp(): Promise<Product[] | null> {
 
 /* =========================
  *  MAPPER UNTUK /menu
- *  (Sumber utamanya HPP & harga jual)
+ *  (Sumber utama HPP & harga jual)
  * ========================= */
 
-async function loadFromMenu(): Promise<Product[] | null> {
-  const res: any = await apiGet("/menu");
+async function loadFromMenu(ownerId: string | null): Promise<Product[] | null> {
+  const headers: any = {};
+  if (ownerId) headers["x-owner-id"] = ownerId;
+
+  const res: any = await apiGet("/menu", { headers });
 
   const candidates = [
     res,
@@ -164,8 +167,8 @@ async function loadFromMenu(): Promise<Product[] | null> {
 
       // HPP / Porsi (Bahan) — DISAMAKAN dengan Daftar Menu
       const hppRaw =
-        item.hpp_bahan_per_porsi ?? // kalau BE nanti pakai nama ini
-        item.hpp_bahan ?? // alias lain yang mungkin dipakai
+        item.hpp_bahan_per_porsi ?? // nama baru (kalau BE pakai ini)
+        item.hpp_bahan ?? // alias
         item.total_hpp ?? // existing
         item.hpp_per_porsi ?? // existing
         item.hpp ??
@@ -181,8 +184,7 @@ async function loadFromMenu(): Promise<Product[] | null> {
         id: String(id),
         name: String(name),
         hpp: toNumberLike(hppRaw),
-        // overhead default 0, nanti diisi dari /hpp kalau ada
-        overhead: 0,
+        overhead: 0, // nanti di-enrich dari /hpp
         hargaJual: toNumberLike(hargaJualRaw),
       };
 
@@ -197,13 +199,12 @@ async function loadFromMenu(): Promise<Product[] | null> {
 }
 
 /* =========================
- *  Fallback lama dari /menu
- *  (dipakai kalau /menu dipanggil sbg fallback saja)
+ *  Fallback lama /menu
  * ========================= */
 
 async function tryLoadFromMenuAsFallback(): Promise<Product[] | null> {
   try {
-    const fromMenu = await loadFromMenu();
+    const fromMenu = await loadFromMenu(null);
     return fromMenu && fromMenu.length ? fromMenu : null;
   } catch (err) {
     console.error("[promo] gagal loadFromMenu (fallback):", err);
@@ -216,6 +217,7 @@ async function tryLoadFromMenuAsFallback(): Promise<Product[] | null> {
  * ========================= */
 
 export function useProdukList() {
+  const supabase = createClientComponentClient();
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [loading, setLoading] = useState(false);
 
@@ -226,24 +228,29 @@ export function useProdukList() {
       try {
         setLoading(true);
 
-        /* 1. UTAMA: ambil data base dari /menu
-         *    → ini yang dipakai Daftar Menu, jadi HPP & Harga Jual akan SAMA.
-         */
+        // 🔐 Ambil owner_id dari Supabase Auth
+        const { data } = await supabase.auth.getUser();
+        const ownerId =
+          (data?.user?.user_metadata as any)?.owner_id ?? null;
+
+        console.log("[promo] ownerId from supabase:", ownerId);
+
+        /* 1. UTAMA: /menu (punya owner ini) */
         let baseFromMenu: Product[] | null = null;
         try {
-          baseFromMenu = await loadFromMenu();
+          baseFromMenu = await loadFromMenu(ownerId);
         } catch (err) {
           console.error("[promo] gagal load dari /menu (utama):", err);
         }
 
-        // Kalau /menu berhasil, kita pakai itu sebagai base, lalu enrich dari /hpp
         if (baseFromMenu && baseFromMenu.length > 0) {
           let enriched = baseFromMenu;
 
+          // Enrich overhead & profit dari /hpp (owner sama)
           try {
-            const fromHpp = await tryLoadFromHpp();
+            const fromHpp = await tryLoadFromHpp(ownerId);
             if (fromHpp && fromHpp.length > 0) {
-              console.log("[promo] enrich dengan data dari /hpp");
+              console.log("[promo] enrich dengan data dari /hpp (owner match)");
 
               const mapHpp = new Map<string, Product>();
               fromHpp.forEach((p) => {
@@ -256,14 +263,12 @@ export function useProdukList() {
 
                 return {
                   ...m,
-                  // overhead & profitPercent ambil dari /hpp kalau ada
                   overhead:
                     extra.overhead != null ? extra.overhead : m.overhead,
                   profitPercent:
                     extra.profitPercent != null
                       ? extra.profitPercent
                       : m.profitPercent,
-                  // hargaJual dari /hpp hanya dipakai kalau di /menu masih 0
                   hargaJual:
                     m.hargaJual && m.hargaJual > 0
                       ? m.hargaJual
@@ -281,14 +286,11 @@ export function useProdukList() {
           return;
         }
 
-        /* 2. Kalau /menu gagal total (misal endpoint belum siap),
-         *    baru kita balik ke behaviour lama:
-         *    prioritas /hpp → fallback /menu.
-         */
+        /* 2. Kalau /menu gagal: pakai behaviour lama
+           prioritas /hpp → fallback /menu tanpa owner (dev mode) */
 
-        // 2a. PRIORITAS: /hpp
         try {
-          const fromHpp = await tryLoadFromHpp();
+          const fromHpp = await tryLoadFromHpp(ownerId);
           if (fromHpp && !cancelled) {
             console.log("[promo] loaded products from /hpp (tanpa /menu)");
             setProducts(fromHpp);
@@ -298,7 +300,6 @@ export function useProdukList() {
           console.error("[promo] gagal load dari /hpp (tanpa /menu):", err);
         }
 
-        // 2b. Fallback terakhir: /menu (versi lama)
         try {
           const fromMenuFallback = await tryLoadFromMenuAsFallback();
           if (fromMenuFallback && !cancelled) {
@@ -317,11 +318,11 @@ export function useProdukList() {
     }
 
     load();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [supabase]);
 
   return { products, loading };
 }
-

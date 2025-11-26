@@ -4,12 +4,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, Search, X } from "lucide-react";
 import SuccessToast from "@/components/SuccessToast";
 import { useRouter } from "next/navigation";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ========= config ========= */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
@@ -63,11 +63,10 @@ async function callApi(
 
   const mergedHeaders: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
     ...(headers || {}),
   };
 
-  const res = await fetch(url, {
+  const res = await ownerFetch(url, {
     ...rest,
     headers: mergedHeaders,
     cache: "no-store",
@@ -123,9 +122,6 @@ export default function MenuPage() {
         : [];
 
       const mapped: MenuRow[] = raw.map((x: any, idx: number) => {
-        // optional: debug kalau mau cek lagi kontrak
-        // console.log("[menu] raw row:", x);
-
         const hppValue =
           x.total_hpp != null
             ? Number(x.total_hpp)
@@ -136,8 +132,25 @@ export default function MenuPage() {
         const overheadValue =
           x.overhead_per_porsi != null ? Number(x.overhead_per_porsi) : null;
 
-        const hargaJualValue =
+        // ==== harga jual: baca semua kemungkinan field ====
+        const rawHargaJual =
           x.harga_jual != null ? Number(x.harga_jual) : null;
+        const rawHargaJualUser =
+          x.harga_jual_user != null ? Number(x.harga_jual_user) : null;
+        const rawHarga = x.harga != null ? Number(x.harga) : null;
+
+        let hargaJualValue: number | null = null;
+
+        if (rawHargaJualUser && rawHargaJualUser > 0) {
+          hargaJualValue = rawHargaJualUser;
+        } else if (rawHargaJual && rawHargaJual > 0) {
+          hargaJualValue = rawHargaJual;
+        } else if (rawHarga && rawHarga > 0) {
+          hargaJualValue = rawHarga;
+        } else {
+          // kalau semua 0 / null, tetap simpan salah satu biar keliatan 0 di UI
+          hargaJualValue = rawHargaJual ?? rawHargaJualUser ?? rawHarga;
+        }
 
         const profitPersenValue =
           x.margin_persen != null

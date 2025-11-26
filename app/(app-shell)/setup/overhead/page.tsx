@@ -4,12 +4,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, Search, X } from "lucide-react";
 import { SetupTabs } from "../_components/SetupTabs";
 import SuccessToast from "@/components/SuccessToast";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ========= config ========= */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
@@ -61,11 +61,10 @@ async function callApi(
 
   const mergedHeaders: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
     ...(headers || {}),
   };
 
-  const res = await fetch(url, {
+  const res = await ownerFetch(url, {
     ...rest,
     headers: mergedHeaders,
     cache: "no-store",

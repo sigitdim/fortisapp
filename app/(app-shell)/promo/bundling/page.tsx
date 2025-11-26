@@ -16,6 +16,12 @@ function calcProfitPercent(hpp: number, overhead: number, hargaJual: number) {
   return (profit / hargaJual) * 100;
 }
 
+function calcProfitPercentFromCost(cost: number, hargaJual: number) {
+  if (!hargaJual) return 0;
+  const profit = hargaJual - cost;
+  return (profit / hargaJual) * 100;
+}
+
 function badgeColorForPercent(pct: number) {
   if (pct >= 50) return "bg-green-100 text-green-700";
   if (pct >= 20) return "bg-amber-100 text-amber-700";
@@ -28,13 +34,30 @@ function classForPercent(pct: number) {
   return "text-red-500";
 }
 
+/** Clamp biar gak muncul  -92400% */
 function formatPercent(pct: number) {
-  return `${Math.round(pct)}%`;
+  const clamped = Math.max(-100, Math.min(300, pct));
+  return `${Math.round(clamped)}%`;
 }
 
 function parseNumberFromCurrency(input: string): number {
   const digits = input.replace(/[^0-9]/g, "");
   return digits ? parseInt(digits, 10) : 0;
+}
+
+/**
+ * Normalisasi angka uang:
+ * - Kalau sangat besar (>= 1.000.000) dan kelipatan 1000,
+ *   diasumsikan masih “per 1000” → dibagi 1000.
+ * - Kalau tidak, pakai apa adanya.
+ */
+function normalizeMoney(value: number | null | undefined): number {
+  const v = typeof value === "number" ? value : 0;
+  if (v >= 1_000_000 && v % 1_000 === 0) {
+    const candidate = v / 1_000;
+    if (candidate < 500_000) return candidate;
+  }
+  return v;
 }
 
 /* ========= page ========= */
@@ -54,10 +77,15 @@ export default function PromoBundlingPage() {
     // kalau user sudah pernah pilih, jangan di-override
     if (menu1 && menu2) return;
 
-    const withProfit = list.map((p) => ({
-      id: p.id,
-      profit: calcProfitPercent(p.hpp, p.overhead, p.hargaJual),
-    }));
+    const withProfit = list.map((p) => {
+      const hpp = normalizeMoney(p.hpp);
+      const ovh = normalizeMoney(p.overhead);
+      const hj = normalizeMoney(p.hargaJual);
+      return {
+        id: p.id,
+        profit: calcProfitPercent(hpp, ovh, hj),
+      };
+    });
 
     // urutkan dari profit terbesar ke terkecil
     withProfit.sort((a, b) => b.profit - a.profit);
@@ -101,18 +129,25 @@ export default function PromoBundlingPage() {
     );
   }
 
-  const totalCost =
-    product1.hpp +
-    product1.overhead +
-    product2.hpp +
-    product2.overhead;
+  // NORMALISASI SEMUA ANGKA
+  const hpp1 = normalizeMoney(product1.hpp);
+  const ovh1 = normalizeMoney(product1.overhead);
+  const hj1 = normalizeMoney(product1.hargaJual);
 
+  const hpp2 = normalizeMoney(product2.hpp);
+  const ovh2 = normalizeMoney(product2.overhead);
+  const hj2 = normalizeMoney(product2.hargaJual);
+
+  const totalCost = hpp1 + ovh1 + hpp2 + ovh2;
   const profitPct = totalCost
-    ? ((targetPrice - totalCost) / targetPrice) * 100
+    ? calcProfitPercentFromCost(totalCost, targetPrice || 0)
     : 0;
 
-  const afterTax = Math.round(targetPrice * 1.1);
-  const onlineFood = Math.round(targetPrice * 1.15);
+  const afterTax = Math.round((targetPrice || 0) * 1.1);
+  const onlineFood = Math.round((targetPrice || 0) * 1.15);
+
+  const profitMenu1 = calcProfitPercent(hpp1, ovh1, hj1);
+  const profitMenu2 = calcProfitPercent(hpp2, ovh2, hj2);
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
@@ -153,38 +188,28 @@ export default function PromoBundlingPage() {
                   </h3>
                   <span
                     className={`text-sm font-semibold ${classForPercent(
-                      calcProfitPercent(
-                        product1.hpp,
-                        product1.overhead,
-                        product1.hargaJual
-                      )
+                      profitMenu1
                     )}`}
                   >
-                    {formatPercent(
-                      calcProfitPercent(
-                        product1.hpp,
-                        product1.overhead,
-                        product1.hargaJual
-                      )
-                    )}
+                    {formatPercent(profitMenu1)}
                   </span>
                 </div>
                 <div className="mt-4 space-y-1 text-sm">
                   <div className="flex justify-between text-gray-600">
                     <span>HPP</span>
                     <span className="font-medium text-gray-900">
-                      {rupiah(product1.hpp)}
+                      {rupiah(hpp1)}
                     </span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Overhead</span>
                     <span className="font-medium text-gray-900">
-                      {rupiah(product1.overhead)}
+                      {rupiah(ovh1)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold text-gray-900">
                     <span>Harga Jual</span>
-                    <span>{rupiah(product1.hargaJual)}</span>
+                    <span>{rupiah(hj1)}</span>
                   </div>
                 </div>
               </div>
@@ -217,38 +242,28 @@ export default function PromoBundlingPage() {
                   </h3>
                   <span
                     className={`text-sm font-semibold ${classForPercent(
-                      calcProfitPercent(
-                        product2.hpp,
-                        product2.overhead,
-                        product2.hargaJual
-                      )
+                      profitMenu2
                     )}`}
                   >
-                    {formatPercent(
-                      calcProfitPercent(
-                        product2.hpp,
-                        product2.overhead,
-                        product2.hargaJual
-                      )
-                    )}
+                    {formatPercent(profitMenu2)}
                   </span>
                 </div>
                 <div className="mt-4 space-y-1 text-sm">
                   <div className="flex justify-between text-gray-600">
                     <span>HPP</span>
                     <span className="font-medium text-gray-900">
-                      {rupiah(product2.hpp)}
+                      {rupiah(hpp2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Overhead</span>
                     <span className="font-medium text-gray-900">
-                      {rupiah(product2.overhead)}
+                      {rupiah(ovh2)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold text-gray-900">
                     <span>Harga Jual</span>
-                    <span>{rupiah(product2.hargaJual)}</span>
+                    <span>{rupiah(hj2)}</span>
                   </div>
                 </div>
               </div>

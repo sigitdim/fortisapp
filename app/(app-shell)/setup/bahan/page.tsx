@@ -1,15 +1,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Search, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, CheckCircle2 } from "lucide-react";
 import { SetupTabs } from "../_components/SetupTabs";
 import { createPortal } from "react-dom";
-import { CheckCircle2 } from "lucide-react";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ========= config ========= */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= helpers ========= */
 
@@ -57,15 +56,14 @@ async function callApi(
 
   const mergedHeaders: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
     ...(headers || {}),
   };
 
-const res = await fetch(url, {
-  cache: "no-store",
-  ...rest,
-  headers: mergedHeaders,
-});
+  const res = await ownerFetch(url, {
+    cache: "no-store",
+    ...rest,
+    headers: mergedHeaders,
+  });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -97,7 +95,9 @@ export default function SetupBahanPage() {
   const [volume, setVolume] = useState("");
   const [satuan, setSatuan] = useState("");
 
- const [notice, setNotice] = useState<{ type: "success"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ type: "success"; text: string } | null>(
+    null
+  );
 
   useEffect(() => {
     if (!notice) return;
@@ -109,45 +109,47 @@ export default function SetupBahanPage() {
     setNotice({ type: "success", text });
   }
 
-function SuccessToast({ text }: { text: string }) {
-  if (typeof window === "undefined") return null;
-  return createPortal(
-    <div
-      className="fixed right-4 top-4 z-[10000] inline-flex items-center gap-2 rounded-xl bg-green-50 px-4 py-2 text-sm font-medium text-green-800 shadow ring-1 ring-green-200"
-    >
-      <CheckCircle2 className="h-4 w-4" />
-      <span>{text}</span>
-    </div>,
-    document.body
-  );
-}
+  function SuccessToast({ text }: { text: string }) {
+    if (typeof window === "undefined") return null;
+    return createPortal(
+      <div className="fixed right-4 top-4 z-[10000] inline-flex items-center gap-2 rounded-xl bg-green-50 px-4 py-2 text-sm font-medium text-green-800 shadow ring-1 ring-green-200">
+        <CheckCircle2 className="h-4 w-4" />
+        <span>{text}</span>
+      </div>,
+      document.body
+    );
+  }
 
   /* ----- load data ----- */
 
-async function fetchData() {
-  setLoading(true);
-  setErr(null);
-  try {
-    const res = await callApi(`/setup/bahan?t=${Date.now()}`, {
-      method: "GET",
-      cache: "no-store" as RequestCache,
-    });
+  async function fetchData() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const res = await callApi(`/setup/bahan?t=${Date.now()}`, {
+        method: "GET",
+        cache: "no-store" as RequestCache,
+      });
 
-    const raw = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-    const rows: Bahan[] = raw.map((x: any) => ({
-      id: String(x.id ?? x.bahan_id ?? crypto.randomUUID()),
-      nama_bahan: x.nama_bahan ?? x.nama ?? "",
-      harga: x.harga ?? x.price ?? null,
-      volume_default: Number(x.purchase_qty ?? x.volume_default ?? x.volume ?? 0),
-      satuan: x.purchase_unit ?? x.satuan ?? x.unit ?? null,
-    }));
-    setList(rows);
-  } catch (e: any) {
-    setErr(cleanErrorMessage(e?.message || "Gagal memuat data bahan."));
-  } finally {
-    setLoading(false);
+      const raw = Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res)
+        ? res
+        : [];
+      const rows: Bahan[] = raw.map((x: any) => ({
+        id: String(x.id ?? x.bahan_id ?? crypto.randomUUID()),
+        nama_bahan: x.nama_bahan ?? x.nama ?? "",
+        harga: x.harga ?? x.price ?? null,
+        volume_default: Number(x.purchase_qty ?? x.volume_default ?? x.volume ?? 0),
+        satuan: x.purchase_unit ?? x.satuan ?? x.unit ?? null,
+      }));
+      setList(rows);
+    } catch (e: any) {
+      setErr(cleanErrorMessage(e?.message || "Gagal memuat data bahan."));
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   useEffect(() => {
     fetchData();
@@ -158,9 +160,7 @@ async function fetchData() {
   const filtered = useMemo(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) return list;
-    return list.filter((r) =>
-      (r.nama_bahan || "").toLowerCase().includes(q)
-    );
+    return list.filter((r) => (r.nama_bahan || "").toLowerCase().includes(q));
   }, [list, query]);
 
   /* ----- form helpers ----- */
@@ -182,9 +182,7 @@ async function fetchData() {
     setEditing(row);
     setNamaBahan(row.nama_bahan || "");
     setHargaBeli(
-      row.harga != null && !Number.isNaN(row.harga)
-        ? String(row.harga)
-        : ""
+      row.harga != null && !Number.isNaN(row.harga) ? String(row.harga) : ""
     );
     setVolume(
       row.volume_default != null && !Number.isNaN(row.volume_default)
@@ -201,72 +199,79 @@ async function fetchData() {
     resetForm();
   }
 
-async function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
 
-  if (!namaBahan.trim() || !hargaBeli.trim() || !satuan.trim()) {
-    setErr("Nama, harga, dan satuan wajib diisi.");
-    return;
-  }
-
-  try {
-    setSaving(true);
-    setErr(null);
-
-    const hargaNum = Number(hargaBeli.replace(",", "."));
-    const volNum = volume.trim() === "" ? null : Number(volume.replace(",", "."));
-    const namaTrim = namaBahan.trim();
-    const satuanTrim = satuan.trim();
-
-    const payload: any = {
-      nama: namaTrim,
-      nama_bahan: namaTrim,
-      satuan: satuanTrim,
-      harga: Number.isNaN(hargaNum) ? 0 : hargaNum,
-      purchase_qty: Number.isNaN(volNum as any) || volNum == null ? 0 : volNum,
-      purchase_unit: satuanTrim,
-    };
-
-    if (editing) {
-      await callApi(`/setup/bahan/${editing.id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-
-      // OPTIMISTIC UPDATE – langsung update row di state
-      setList((prev) =>
-        prev.map((it) =>
-          it.id === editing.id
-            ? {
-                ...it,
-                nama_bahan: payload.nama ?? payload.nama_bahan ?? it.nama_bahan,
-                harga: payload.harga ?? it.harga,
-                volume_default:
-                  typeof payload.purchase_qty === "number"
-                    ? payload.purchase_qty
-                    : it.volume_default,
-                satuan: payload.purchase_unit ?? it.satuan,
-              }
-            : it
-        )
-      );
-    } else {
-      await callApi("/setup/bahan", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+    if (!namaBahan.trim() || !hargaBeli.trim() || !satuan.trim()) {
+      setErr("Nama, harga, dan satuan wajib diisi.");
+      return;
     }
 
-await fetchData();  // sinkron final
-showSuccess(editing ? "Berhasil menyimpan perubahan." : "Berhasil menambahkan bahan.");
-closeFormModal();
-  } catch (e: any) {
-    const msg = cleanErrorMessage((e?.message || "Gagal menyimpan bahan.") as string);
-    setErr(msg);
-  } finally {
-    setSaving(false);
+    try {
+      setSaving(true);
+      setErr(null);
+
+      const hargaNum = Number(hargaBeli.replace(",", "."));
+      const volNum =
+        volume.trim() === "" ? null : Number(volume.replace(",", "."));
+      const namaTrim = namaBahan.trim();
+      const satuanTrim = satuan.trim();
+
+      const payload: any = {
+        nama: namaTrim,
+        nama_bahan: namaTrim,
+        satuan: satuanTrim,
+        harga: Number.isNaN(hargaNum) ? 0 : hargaNum,
+        purchase_qty: Number.isNaN(volNum as any) || volNum == null ? 0 : volNum,
+        purchase_unit: satuanTrim,
+      };
+
+      if (editing) {
+        await callApi(`/setup/bahan/${editing.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+
+        // OPTIMISTIC UPDATE – langsung update row di state
+        setList((prev) =>
+          prev.map((it) =>
+            it.id === editing.id
+              ? {
+                  ...it,
+                  nama_bahan: payload.nama ?? payload.nama_bahan ?? it.nama_bahan,
+                  harga: payload.harga ?? it.harga,
+                  volume_default:
+                    typeof payload.purchase_qty === "number"
+                      ? payload.purchase_qty
+                      : it.volume_default,
+                  satuan: payload.purchase_unit ?? it.satuan,
+                }
+              : it
+          )
+        );
+      } else {
+        await callApi("/setup/bahan", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      await fetchData(); // sinkron final
+      showSuccess(
+        editing
+          ? "Berhasil menyimpan perubahan."
+          : "Berhasil menambahkan bahan."
+      );
+      closeFormModal();
+    } catch (e: any) {
+      const msg = cleanErrorMessage(
+        (e?.message || "Gagal menyimpan bahan.") as string
+      );
+      setErr(msg);
+    } finally {
+      setSaving(false);
+    }
   }
-}
 
   /* ----- delete helpers ----- */
 
@@ -279,46 +284,46 @@ closeFormModal();
     setDeleteModalRow(null);
   }
 
-async function handleDelete() {
-  const row = deleteModalRow;
-  if (!row) return;
+  async function handleDelete() {
+    const row = deleteModalRow;
+    if (!row) return;
 
-  try {
-    setDeletingId(row.id);
-    setErr(null);
+    try {
+      setDeletingId(row.id);
+      setErr(null);
 
-    await callApi(`/setup/bahan/${row.id}`, { method: "DELETE" });
+      await callApi(`/setup/bahan/${row.id}`, { method: "DELETE" });
 
-    // OPTIMISTIC REMOVE – hilangkan langsung dari tabel
-    setList((prev) => prev.filter((it) => it.id !== row.id));
+      // OPTIMISTIC REMOVE – hilangkan langsung dari tabel
+      setList((prev) => prev.filter((it) => it.id !== row.id));
 
-await fetchData();  // sinkron final
-showSuccess("Bahan berhasil dihapus.");
-closeDeleteModal();
-  } catch (e: any) {
-    const msg = cleanErrorMessage(e?.message || "");
-    if (msg.toLowerCase().includes("not found")) {
-      await fetchData();
+      await fetchData(); // sinkron final
+      showSuccess("Bahan berhasil dihapus.");
       closeDeleteModal();
-      return;
+    } catch (e: any) {
+      const msg = cleanErrorMessage(e?.message || "");
+      if (msg.toLowerCase().includes("not found")) {
+        await fetchData();
+        closeDeleteModal();
+        return;
+      }
+      setErr(msg || "Gagal menghapus bahan.");
+    } finally {
+      setDeletingId(null);
     }
-    setErr(msg || "Gagal menghapus bahan.");
-  } finally {
-    setDeletingId(null);
   }
-}
 
   /* ----- render ----- */
 
   return (
     <div className="p-6 md:p-8">
-{notice ? <SuccessToast text={notice.text} /> : null}
-  
-    <div className="mb-6 flex items-center justify-between">
-      <h1 className="text-3xl font-extrabold tracking-tight">Setup</h1>
-    </div>
+      {notice ? <SuccessToast text={notice.text} /> : null}
 
-    <SetupTabs active="bahan" />
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-3xl font-extrabold tracking-tight">Setup</h1>
+      </div>
+
+      <SetupTabs active="bahan" />
 
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white shadow-sm">
         {/* header card: tombol + search */}

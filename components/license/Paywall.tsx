@@ -1,4 +1,3 @@
-// components/license/Paywall.tsx
 "use client";
 
 import * as React from "react";
@@ -12,14 +11,14 @@ export default function Paywall() {
   const { loading, isActive, expiresAt, error, verify } = useLicense();
   const [opening, setOpening] = React.useState(false);
 
-  const onActivate = () => {
+  const onActivate = React.useCallback(() => {
     if (opening) return;
     setOpening(true);
     if (typeof window !== "undefined") {
       window.open(CHECKOUT_URL, "_blank");
     }
     setTimeout(() => setOpening(false), 1500);
-  };
+  }, [opening]);
 
   // hitung sisa hari
   const badge = React.useMemo(() => {
@@ -28,7 +27,7 @@ export default function Paywall() {
     const days = Math.max(0, Math.ceil((d.getTime() - Date.now()) / 86400000));
     return (
       <div className="text-xs opacity-70">
-        Berlaku hingga: {d.toLocaleString()} • sisa {days} hari
+        Berlaku hingga: {d.toLocaleDateString()} • sisa {days} hari
       </div>
     );
   }, [expiresAt]);
@@ -45,7 +44,11 @@ export default function Paywall() {
       <div className="mb-4 grid gap-1">
         <div className="text-sm">Status lisensi:</div>
         <div className="text-lg font-medium">
-          {loading ? "Mengecek..." : isActive ? "AKTIF (Pro)" : "TIDAK AKTIF (Free)"}
+          {loading
+            ? "Mengecek..."
+            : isActive
+            ? "AKTIF (Pro)"
+            : "TIDAK AKTIF (Free)"}
         </div>
         {badge}
         {error && <div className="text-xs text-red-600">{error}</div>}
@@ -54,16 +57,20 @@ export default function Paywall() {
       <div className="flex flex-wrap gap-2">
         {!isActive && (
           <button
+            type="button"
             onClick={onActivate}
-            className="rounded-2xl px-4 py-2 text-white bg-black disabled:opacity-50"
+            className="rounded-2xl bg-black px-4 py-2 text-white disabled:opacity-50"
             disabled={loading || opening}
+            // tombol ini yang “dipencet” dari Billing (Perpanjang)
+            data-fortis-billing="checkout"
           >
             {opening ? "Membuka..." : "Aktifkan Pro"}
           </button>
         )}
         <button
+          type="button"
           onClick={verify}
-          className="rounded-2xl px-4 py-2 border"
+          className="rounded-2xl border px-4 py-2"
           disabled={loading}
         >
           {loading ? "Memuat..." : "Saya sudah bayar — Refresh status"}

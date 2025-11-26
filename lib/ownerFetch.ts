@@ -2,62 +2,50 @@
 
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
+// base URL backend (multi-tenant)
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
+
 /**
- * Ambil owner_id dari Supabase Auth.
- * Throw error kalau user belum login / owner_id ga ada.
+ * Helper untuk memastikan URL selalu mengarah ke API:
+ * - Kalau input sudah "http://"/"https://" → pakai apa adanya (kompatibel dengan logic lama)
+ * - Kalau cuma path → otomatis diprefix dengan API_BASE
  */
-export async function getOwnerIdFromSupabase(): Promise<string> {
-  const supabase = createClientComponentClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error) {
-    console.error("[ownerFetch] supabase.getUser error:", error.message);
-    throw new Error("Gagal ambil user dari Supabase");
-  }
-  if (!user) {
-    console.error("[ownerFetch] user tidak ada (belum login?)");
-    throw new Error("User belum login");
+function buildUrl(input: string): string {
+  if (input.startsWith("http://") || input.startsWith("https://")) {
+    // jalur lama: sudah full URL → jangan diapa-apakan
+    return input;
   }
 
-  const ownerId =
-    (user as any).user_metadata?.owner_id ||
-    (user as any).raw_user_meta_data?.owner_id;
-
-  if (!ownerId) {
-    console.error("[ownerFetch] owner_id tidak ditemukan di user_metadata:", {
-      user_metadata: (user as any).user_metadata,
-      raw_user_meta_data: (user as any).raw_user_meta_data,
-    });
-    throw new Error("owner_id tidak ditemukan di Supabase user_metadata");
-  }
-
-  return ownerId;
+  const path = input.startsWith("/") ? input : `/${input}`;
+  return `${API_BASE}${path}`;
 }
 
-/**
- * Wrapper fetch yang OTOMATIS nambahin header "x-owner-id"
- * ke setiap request ke Backend Fortis.
- *
- * Contoh:
- *   await ownerFetch(`${API_BASE}/setup/bahan`);
- *   await ownerFetch(`${API_BASE}/promo`, { method: "POST", body: ... });
- */
-export async function ownerFetch(
-  input: RequestInfo | URL,
-  init: RequestInit = {}
-): Promise<Response> {
-  const ownerId = await getOwnerIdFromSupabase();
+export async function ownerFetch(url: string, options: any = {}) {
+  const supabase = createClientComponentClient();
 
-  const headers = new Headers(init.headers || {});
-  headers.set("x-owner-id", ownerId);
+  const { data: session } = await supabase.auth.getSession();
+  if (!session?.session) {
+    console.error("[ownerFetch] Session Supabase tidak ditemukan");
+    throw new Error("Sesi login tidak ditemukan.");
+  }
 
-  const finalInit: RequestInit = {
-    ...init,
-    headers,
+  const user = session.session.user;
+
+  const ownerId =
+    user?.user_metadata?.owner_id ||
+    (user as any)?.raw_user_meta_data?.owner_id ||
+    "";
+
+  const headers = {
+    ...(options.headers || {}),
+    "x-owner-id": ownerId,
+    // kalau mau super aman bisa hanya set Content-Type kalau ada body,
+    // tapi untuk sekarang biarkan sama seperti logic lama
+    "Content-Type": "application/json",
   };
 
-  return fetch(input, finalInit);
+  const finalUrl = buildUrl(url);
+
+  return fetch(finalUrl, { ...options, headers });
 }

@@ -1,162 +1,267 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
 import {
-  LayoutDashboard,
+  LayoutGrid,
   Calculator,
+  BookOpenText,
   Boxes,
-  PercentCircle,
-  LineChart,
   Settings,
-  FileText,
+  Percent,
   User,
-  Menu,
-  X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Kalkulator HPP", href: "/hpp", icon: Calculator },
-  { label: "Promo", href: "/promo", icon: PercentCircle },
-  { label: "Inventory", href: "/inventory", icon: Boxes },
-  { label: "Laporan", href: "/report", icon: LineChart },
+type Item = { label: string; href: string; icon: ReactNode };
+
+const main: Item[] = [
+  {
+    label: "Dashboard",
+    href: "/dashboard",
+    icon: <LayoutGrid className="h-5 w-5" />,
+  },
+  {
+    label: "Kalkulator HPP",
+    href: "/hpp",
+    icon: <Calculator className="h-5 w-5" />,
+  },
+  {
+    label: "Daftar Menu",
+    href: "/menu",
+    icon: <BookOpenText className="h-5 w-5" />,
+  },
 ];
 
-const STORAGE_KEY = "fortisapp-sidebar-collapsed";
+const promoChildren: Item[] = [
+  {
+    label: "Kalkulator Diskon",
+    href: "/promo/diskon",
+    icon: <Percent className="h-5 w-5" />,
+  },
+  {
+    label: "Kalkulator Bundling",
+    href: "/promo/bundling",
+    icon: <Percent className="h-5 w-5" />,
+  },
+  {
+    label: "Kalkulator Buy 1 Get 1",
+    href: "/promo/b1g1",
+    icon: <Percent className="h-5 w-5" />,
+  },
+  {
+    label: "Kalkulator Tebus Murah",
+    href: "/promo/tebus-murah",
+    icon: <Percent className="h-5 w-5" />,
+  },
+];
+
+const setupChildren: Item[] = [
+  {
+    label: "Bahan",
+    href: "/setup/bahan",
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Overhead",
+    href: "/setup/overhead",
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Tenaga Kerja",
+    href: "/setup/tenaga-kerja",
+    icon: <Settings className="h-5 w-5" />,
+  },
+  {
+    label: "Aset",
+    href: "/setup/aset",
+    icon: <Settings className="h-5 w-5" />,
+  },
+];
+
+function isActive(pathname: string | null, href: string, exact = false) {
+  if (!pathname) return false;
+  const clean = (s: string) =>
+    s.endsWith("/") && s !== "/" ? s.slice(0, -1) : s;
+  const p = clean(pathname);
+  const h = clean(href);
+  return exact ? p === h : p === h || p.startsWith(h + "/");
+}
 
 export default function SidebarNav() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = React.useState(false);
-  const [mounted, setMounted] = React.useState(false);
 
-  React.useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "true") setCollapsed(true);
-    setMounted(true);
-  }, []);
-
-  React.useEffect(() => {
-    if (mounted) localStorage.setItem(STORAGE_KEY, collapsed ? "true" : "false");
-  }, [collapsed, mounted]);
-
-  const safePath = pathname || "";
+  const baseItem =
+    "mx-1 flex items-center gap-3 rounded-full px-4 py-3 font-medium transition";
+  const activeItem =
+    "bg-yellow-400 text-black shadow-[inset_0_-2px_0_rgba(0,0,0,.12)]";
+  const idleItem = "text-neutral-900 hover:bg-neutral-100";
 
   return (
-    <aside
-      className={cn(
-        "fixed left-0 top-0 z-40 flex h-screen flex-col justify-between bg-white border-r border-gray-100 transition-all duration-300 shadow-sm",
-        collapsed ? "w-[80px]" : "w-64"
-      )}
-    >
-      {/* HEADER */}
-      <div className="flex items-center justify-between px-4 h-16 border-b border-gray-100">
-        {!collapsed && (
-          <>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold text-black">Fortis</span>
-              <span className="text-xl font-bold text-red-600">App</span>
-            </div>
-            <button
-              onClick={() => setCollapsed(true)}
-              className="flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </>
-        )}
-        {collapsed && (
-          <button
-            onClick={() => setCollapsed(false)}
-            className="flex items-center justify-center rounded-md p-2 text-black hover:bg-gray-100"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-        )}
+    <div className="flex h-full flex-col px-3 py-4">
+      {/* Brand */}
+      <div className="mb-6 mt-1 px-2">
+        <div className="text-2xl font-extrabold tracking-tight">
+          <span className="text-neutral-900">Fortis</span>
+          <span className="text-red-500">App</span>
+        </div>
       </div>
 
-      {/* NAV */}
-      <nav
-        className={cn(
-          "flex-1 flex flex-col transition-all duration-300",
-          collapsed ? "items-center gap-6 mt-2" : "px-3 gap-1 mt-4"
-        )}
-      >
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const active =
-            safePath === item.href ||
-            (item.href !== "/dashboard" && safePath.startsWith(item.href + "/"));
-
+      {/* MENU utama */}
+      <div className="px-3 pb-2 text-xs font-semibold tracking-wide text-neutral-500">
+        MENU
+      </div>
+      <nav className="space-y-3">
+        {main.map((it) => {
+          const active = isActive(pathname, it.href);
           return (
             <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
-                collapsed
-                  ? "h-10 w-10 justify-center"
-                  : "px-3 py-2 gap-3",
-                active
-                  ? "bg-yellow-400 text-black"
-                  : "text-gray-800 hover:bg-gray-100"
-              )}
+              key={it.href}
+              href={it.href}
+              prefetch={false}
+              className={[baseItem, active ? activeItem : idleItem].join(" ")}
             >
-              <Icon className="h-5 w-5" />
-              {!collapsed && <span>{item.label}</span>}
+              <span
+                className={[
+                  "grid h-6 w-6 place-items-center rounded-md",
+                  active ? "bg-black/10" : "bg-neutral-200",
+                ].join(" ")}
+              >
+                {it.icon}
+              </span>
+              {it.label}
             </Link>
           );
         })}
-      </nav>
 
-      {/* FOOTER */}
-      <div
-        className={cn(
-          "flex flex-col items-center gap-4 pb-6 border-t border-gray-100 pt-4 transition-all duration-300",
-          collapsed ? "" : "px-3"
-        )}
-      >
-        <button
-          type="button"
-          className={cn(
-            "flex items-center justify-center rounded-full transition-all duration-200",
-            collapsed
-              ? "h-8 w-8 bg-white border border-gray-300 text-black hover:bg-gray-100"
-              : "h-9 w-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-          )}
+        {/* Kalkulator Promo (selalu expand) */}
+        <div className="px-1">
+          <Link
+            href="/promo"
+            prefetch={false}
+            className={[baseItem, idleItem].join(" ")}
+          >
+            <span className="grid h-6 w-6 place-items-center rounded-md bg-neutral-200">
+              <Percent className="h-5 w-5" />
+            </span>
+            Kalkulator Promo
+          </Link>
+          <div className="mb-1 ml-10 mt-2 space-y-2">
+            {promoChildren.map((c) => {
+              const childActive = isActive(pathname, c.href, true);
+              return (
+                <Link
+                  key={c.href}
+                  href={c.href}
+                  prefetch={false}
+                  className={[
+                    "flex items-center gap-2 text-sm",
+                    childActive
+                      ? "font-semibold text-neutral-900"
+                      : "text-neutral-600 hover:text-neutral-800",
+                  ].join(" ")}
+                >
+                  {c.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Inventory */}
+        <Link
+          href="/inventory"
+          prefetch={false}
+          className={[
+            baseItem,
+            isActive(pathname, "/inventory") ? activeItem : idleItem,
+          ].join(" ")}
         >
-          <Settings className="h-4 w-4" />
-          {!collapsed && <span className="ml-2 text-sm font-medium">Setup</span>}
-        </button>
+          <span className="grid h-6 w-6 place-items-center rounded-md bg-neutral-200">
+            <Boxes className="h-5 w-5" />
+          </span>
+          Inventory
+        </Link>
 
+        {/* Fortis Insight – halaman sendiri */}
+        <Link
+          href="/fortis-insight"
+          prefetch={false}
+          className={[
+            baseItem,
+            isActive(pathname, "/fortis-insight") ? activeItem : idleItem,
+          ].join(" ")}
+        >
+          <span className="grid h-6 w-6 place-items-center rounded-md bg-neutral-200">
+            <BookOpenText className="h-5 w-5" />
+          </span>
+          Fortis Insight
+        </Link>
+
+        {/* Setup (selalu expand), dengan jarak dari Fortis Insight */}
+        <div className="mt-4 px-1">
+          <Link
+            href="/setup/bahan"
+            prefetch={false}
+            className={[baseItem, idleItem].join(" ")}
+          >
+            <Settings className="h-5 w-5" />
+            <span className="truncate">Setup</span>
+          </Link>
+
+          <div className="mb-1 ml-10 mt-2 space-y-2">
+            {setupChildren.map((s) => (
+              <Link
+                key={s.href}
+                href={s.href}
+                prefetch={false}
+                className={[
+                  "flex items-center gap-2 text-sm",
+                  isActive(pathname, s.href, true)
+                    ? "font-semibold text-neutral-900"
+                    : "text-neutral-600 hover:text-neutral-800",
+                ].join(" ")}
+              >
+                {s.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Tutorial */}
         <Link
           href="/tutorial"
-          className={cn(
-            "flex items-center justify-center rounded-full shadow transition-all duration-200",
-            collapsed
-              ? "h-11 w-11 bg-yellow-400 text-black"
-              : "h-10 w-full bg-yellow-400 text-black font-semibold"
-          )}
+          prefetch={false}
+          className={[
+            baseItem,
+            isActive(pathname, "/tutorial") ? activeItem : idleItem,
+          ].join(" ")}
         >
-          <FileText className="h-5 w-5" />
-          {!collapsed && <span className="ml-2 text-sm">Tutorial</span>}
+          <span className="grid h-6 w-6 place-items-center rounded-md bg-neutral-200">
+            <BookOpenText className="h-5 w-5" />
+          </span>
+          Tutorial
         </Link>
+      </nav>
 
+      {/* Membership card di paling bawah */}
+      <div className="mt-auto p-3">
         <Link
-          href="/settings"
-          className={cn(
-            "flex items-center justify-center rounded-full shadow transition-all duration-200",
-            collapsed
-              ? "h-11 w-11 bg-red-600 text-white"
-              : "h-10 w-full bg-red-600 text-white font-semibold"
-          )}
+          href="/billing"
+          prefetch={false}
+          className="flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-red-700"
         >
-          <User className="h-5 w-5" />
-          {!collapsed && <span className="ml-2 text-sm">Yudha | Pro</span>}
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+            <User className="h-4 w-4" />
+          </div>
+          <div className="leading-tight">
+            <div>Yudha | Pro</div>
+            <div className="text-[10px] font-normal opacity-90">
+              Active until 27-03-26
+            </div>
+          </div>
         </Link>
       </div>
-    </aside>
+    </div>
   );
 }

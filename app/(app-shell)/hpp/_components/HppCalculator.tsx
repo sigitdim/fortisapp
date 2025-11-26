@@ -3,12 +3,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import SuccessToast from "@/components/SuccessToast";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ========= config ========= */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.fortislab.id";
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || "";
 
 /* ========= types & utils ========= */
 
@@ -54,11 +54,10 @@ async function callApi(
 
   const mergedHeaders: HeadersInit = {
     "Content-Type": "application/json",
-    "x-owner-id": OWNER_ID,
     ...(headers || {}),
   };
 
-  const res = await fetch(url, {
+  const res = await ownerFetch(url, {
     ...rest,
     headers: mergedHeaders,
     cache: "no-store",
@@ -372,61 +371,63 @@ export default function HppCalculator() {
 
   /* ----- save menu ----- */
 
-  async function handleSimpanMenu() {
-    setErrorMsg(null);
+async function handleSimpanMenu() {
+  setErrorMsg(null);
 
-if (!namaMenu.trim()) {
-  setErrorMsg("Nama menu wajib diisi.");
-  return;
-}
-
-/**
- * PENTING:
- * Untuk disimpan ke backend, kita pakai qty dari `rows` (input user),
- * BUKAN dari `rowsWithCalc` (yang sudah dipakai buat perhitungan / konversi).
- *
- * Ini supaya data di tabel `menu_items.qty` = angka yang user isi di UI,
- * bukan angka yang sudah “diproses” dan bisa membengkak (contoh kasus 10 ml → 100).
- */
-const itemsPayload = rows
-  .filter((r) => r.bahanId && r.qty > 0)
-  .map((r) => ({
-    bahan_id: r.bahanId,
-    qty: Number(r.qty) || 0,
-    unit: r.unit,
-  }));
-
-if (itemsPayload.length === 0) {
-  setErrorMsg("Minimal isi satu bahan resep dengan Qty > 0.");
-  return;
-}
-
-// DEBUG: pastikan payload yang dikirim sudah benar
-console.log("[HPP] POST /menu itemsPayload:", itemsPayload);
-
-    try {
-      setSaving(true);
-
-      await callApi("/menu", {
-        method: "POST",
-        body: JSON.stringify({
-          nama_menu: namaMenu.trim(),
-          items: itemsPayload,
-        }),
-      });
-
-      setNotice("Menu & HPP berhasil disimpan.");
-      // redirect manual
-      window.location.href = "/menu";
-    } catch (e: any) {
-      console.error("Gagal menyimpan menu:", e);
-      setErrorMsg(
-        cleanErrorMessage(e?.message || "Gagal menyimpan menu. Coba lagi.")
-      );
-    } finally {
-      setSaving(false);
-    }
+  if (!namaMenu.trim()) {
+    setErrorMsg("Nama menu wajib diisi.");
+    return;
   }
+
+  const itemsPayload = rows
+    .filter((r) => r.bahanId && r.qty > 0)
+    .map((r) => ({
+      bahan_id: r.bahanId,
+      qty: Number(r.qty) || 0,
+      unit: r.unit,
+    }));
+
+  if (itemsPayload.length === 0) {
+    setErrorMsg("Minimal isi satu bahan resep dengan Qty > 0.");
+    return;
+  }
+
+  // harga jual yang akan DISIMPAN ke /menu
+  if (!dasarHarga || dasarHarga <= 0) {
+    setErrorMsg(
+      "Isi target harga jual atau klik Bantuan AI dulu agar harga jual tidak 0."
+    );
+    return;
+  }
+
+  // ✅ payload FINAL, sesuai laporan BE (hanya pakai harga_jual)
+  const payload = {
+    nama_menu: namaMenu.trim(),
+    harga_jual: dasarHarga,
+    items: itemsPayload,
+  };
+
+  console.log("[HPP] POST /menu payload:", payload);
+
+  try {
+    setSaving(true);
+
+    await callApi("/menu", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    setNotice("Menu & HPP berhasil disimpan.");
+    window.location.href = "/menu";
+  } catch (e: any) {
+    console.error("Gagal menyimpan menu:", e);
+    setErrorMsg(
+      cleanErrorMessage(e?.message || "Gagal menyimpan menu. Coba lagi.")
+    );
+  } finally {
+    setSaving(false);
+  }
+}
 
   /* ========= render ========= */
 
@@ -702,9 +703,7 @@ console.log("[HPP] POST /menu itemsPayload:", itemsPayload);
                   checked={includeChannel}
                   onChange={(e) => setIncludeChannel(e.target.checked)}
                 />
-                <span>
-                  Fee Channel (GrabFood, GoFood, ShopeeFood)
-                </span>
+                <span>Fee Channel (GrabFood, GoFood, ShopeeFood)</span>
               </label>
             </div>
           </div>
@@ -792,3 +791,4 @@ console.log("[HPP] POST /menu itemsPayload:", itemsPayload);
     </div>
   );
 }
+

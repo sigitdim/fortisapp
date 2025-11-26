@@ -1,7 +1,7 @@
 // @ts-nocheck
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-} from 'recharts';
+} from "recharts";
 import {
   Plus,
   Search,
@@ -19,14 +19,10 @@ import {
   AlertCircle,
   X,
   ChevronDown,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { rupiah } from '@/lib/format';
-import { apiGet, apiDelete, apiPut } from '@/lib/api';
-
-const OWNER_ID = process.env.NEXT_PUBLIC_OWNER_ID || '';
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-const api = (p: string) => (API_BASE ? `${API_BASE}${p}` : p);
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { rupiah } from "@/lib/format";
+import { ownerFetch } from "@/lib/ownerFetch";
 
 /* ================== Types ================== */
 
@@ -69,7 +65,7 @@ type LogItem = {
   created_at: string;
   bahan_id: string;
   qty: number;
-  tipe: 'in' | 'out' | 'adjust' | 'void';
+  tipe: "in" | "out" | "adjust" | "void";
   is_void: boolean;
   catatan?: string | null;
   saldo_before?: number | null;
@@ -80,21 +76,25 @@ type LogItem = {
 
 /* ================== Utils ================== */
 
-async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
+async function fetchJson<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  // path = endpoint backend langsung, misal "/inventory/summary"
+  const res = await ownerFetch(path, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
-      'x-owner-id': OWNER_ID,
+      "Content-Type": "application/json",
       ...(options.headers || {}),
     },
-    cache: 'no-store',
+    cache: "no-store",
   });
 
   const text = await res.text();
 
-  if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-    throw new Error('Server API tidak bisa diakses (HTML error).');
+  // Kalau yang balik HTML (404 page / error page), anggap server API-nya salah / belum siap
+  if (text.startsWith("<!DOCTYPE") || text.startsWith("<html")) {
+    throw new Error("Server API tidak bisa diakses (HTML error).");
   }
 
   let json: any = {};
@@ -102,38 +102,32 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
     try {
       json = JSON.parse(text);
     } catch {
-      throw new Error('Response bukan JSON valid.');
+      throw new Error("Response bukan JSON valid.");
     }
   }
 
   if (!res.ok || (json && json.ok === false)) {
-    throw new Error(json?.message || res.statusText || 'Request failed');
+    throw new Error(json?.message || res.statusText || "Request failed");
   }
 
+  // BE kadang bungkus di { ok, data }, kadang langsung array
   return (json?.data ?? json) as T;
 }
 
 const cn = (...a: (string | false | null | undefined)[]) =>
-  a.filter(Boolean).join(' ');
+  a.filter(Boolean).join(" ");
 
-function Skeleton({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={cn(
-        'animate-pulse rounded-lg bg-gray-100',
-        className,
-      )}
-    />
-  );
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-lg bg-gray-100", className)} />;
 }
 
 function formatQty(n?: number | null, satuan?: string | null) {
-  const v = typeof n === 'number' ? n : 0;
-  return `${v.toLocaleString('id-ID')} ${satuan || ''}`.trim();
+  const v = typeof n === "number" ? n : 0;
+  return `${v.toLocaleString("id-ID")} ${satuan || ""}`.trim();
 }
 
 function parseNumberFromCurrency(input: string): number {
-  const digits = input.replace(/[^0-9]/g, '');
+  const digits = input.replace(/[^0-9]/g, "");
   return digits ? parseInt(digits, 10) : 0;
 }
 
@@ -145,12 +139,12 @@ export function InventoryWidget() {
   const [summary, setSummary] = useState<SummaryItem[]>([]);
   const [history, setHistory] = useState<LogItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
 
   // modal edit
   const [editingItem, setEditingItem] = useState<SummaryItem | null>(null);
-  const [editHarga, setEditHarga] = useState<string>('');
-  const [editBatas, setEditBatas] = useState<string>('');
+  const [editHarga, setEditHarga] = useState<string>("");
+  const [editBatas, setEditBatas] = useState<string>("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   // modal delete
@@ -160,20 +154,20 @@ export function InventoryWidget() {
   // modal tambah inventory (IN/OUT)
   const [showAddModal, setShowAddModal] = useState(false);
   const [addBahanId, setAddBahanId] = useState<string | null>(null);
-  const [addType, setAddType] = useState<'in' | 'out'>('in');
-  const [addHarga, setAddHarga] = useState<string>('');
-  const [addQty, setAddQty] = useState<string>('');
+  const [addType, setAddType] = useState<"in" | "out">("in");
+  const [addHarga, setAddHarga] = useState<string>("");
+  const [addQty, setAddQty] = useState<string>("");
   const [savingAdd, setSavingAdd] = useState(false);
   const [showStockDropdown, setShowStockDropdown] = useState(false);
 
   // toast
-  const [toastMsg, setToastMsg] = useState<string>('');
-  const [toastType, setToastType] = useState<'success' | 'error' | null>(null);
+  const [toastMsg, setToastMsg] = useState<string>("");
+  const [toastType, setToastType] = useState<"success" | "error" | null>(null);
   const [showToast, setShowToast] = useState(false);
 
   const showToastMessage = (
     message: string,
-    type: 'success' | 'error' = 'success',
+    type: "success" | "error" = "success"
   ) => {
     setToastMsg(message);
     setToastType(type);
@@ -185,8 +179,10 @@ export function InventoryWidget() {
     setLoading(true);
     setErr(null);
     try {
-      /* 1) Ambil semua bahan dari Setup (SSOT nama + harga + satuan + batas) */
-      const bahanRes = await apiGet<any>(`/setup/bahan?t=${Date.now()}`);
+      /* 1) Ambil semua bahan dari Setup (SSOT nama + harga + satuan + batas),
+       *    sudah pakai owner_id via ownerFetch di fetchJson.
+       */
+      const bahanRes = await fetchJson<any>(`/setup/bahan?t=${Date.now()}`);
       const rawBahan = bahanRes as any;
       const bahanArr = Array.isArray(rawBahan?.data)
         ? rawBahan.data
@@ -203,22 +199,21 @@ export function InventoryWidget() {
               ? Number(b.harga_satuan)
               : null;
 
-          // spread dulu supaya semua field batas ikut masuk
           return {
             ...b,
             id: b.id,
-            nama: b.nama_bahan ?? b.nama ?? '',
+            nama: b.nama_bahan ?? b.nama ?? "",
             satuan: b.satuan ?? b.unit ?? null,
             harga,
           } as Bahan;
         })
         .filter((b: Bahan) => b.id && b.nama);
 
-      /* 2) Ambil inventory summary (stok per bahan, optional) */
+      /* 2) Ambil inventory summary (stok per bahan, per-owner) */
       let sArr: any[] = [];
       try {
         const sPayload = await fetchJson<any>(
-          api(`/api/inventory/summary?t=${Date.now()}`),
+          `/inventory/summary?t=${Date.now()}`
         );
         sArr = Array.isArray(sPayload?.data)
           ? sPayload.data
@@ -280,7 +275,7 @@ export function InventoryWidget() {
           bahan_id: b.id,
           bahan_nama: b.nama,
           saldo: Number(s.saldo ?? s.stok_total ?? 0),
-          satuan: b.satuan ?? s.satuan ?? s.unit ?? '-',
+          satuan: b.satuan ?? s.satuan ?? s.unit ?? "-",
           status: s.status ?? undefined,
           harga:
             b.harga != null
@@ -301,11 +296,11 @@ export function InventoryWidget() {
         const q = new URLSearchParams({
           since: since.toISOString(),
           until: until.toISOString(),
-          limit: '200',
+          limit: "200",
         });
 
         const hPayload = await fetchJson<any>(
-          api(`/api/inventory/history?${q.toString()}&t=${Date.now()}`),
+          `/inventory/history?${q.toString()}&t=${Date.now()}`
         );
         const hArr = Array.isArray(hPayload?.data)
           ? hPayload.data
@@ -317,7 +312,7 @@ export function InventoryWidget() {
         setHistory([]);
       }
     } catch (e: any) {
-      setErr(e.message || 'Gagal memuat data inventory');
+      setErr(e.message || "Gagal memuat data inventory");
     } finally {
       setLoading(false);
     }
@@ -330,21 +325,21 @@ export function InventoryWidget() {
   // listener global dari tempat lain
   useEffect(() => {
     const h = () => load();
-    window.addEventListener('inv:summary-reload', h as any);
-    return () => window.removeEventListener('inv:summary-reload', h as any);
+    window.addEventListener("inv:summary-reload", h as any);
+    return () => window.removeEventListener("inv:summary-reload", h as any);
   }, []);
 
   const filteredSummary = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return summary;
     return summary.filter((s) =>
-      (s.bahan_nama || s.bahan_id).toLowerCase().includes(q),
+      (s.bahan_nama || s.bahan_id).toLowerCase().includes(q)
     );
   }, [summary, search]);
 
   const selectedItem = useMemo(
     () => summary.find((s) => s.bahan_id === selectedId) || null,
-    [summary, selectedId],
+    [summary, selectedId]
   );
 
   const selectedHistory = useMemo(() => {
@@ -353,31 +348,31 @@ export function InventoryWidget() {
       .filter((h) => h.bahan_id === selectedId && !h.is_void)
       .sort(
         (a, b) =>
-          +new Date(a.created_at || '') - +new Date(b.created_at || ''),
+          +new Date(a.created_at || "") - +new Date(b.created_at || "")
       );
   }, [history, selectedId]);
 
   const chartData = useMemo(
     () =>
       selectedHistory.map((r) => ({
-        t: new Date(r.created_at).toLocaleDateString('id-ID', {
-          day: '2-digit',
-          month: '2-digit',
+        t: new Date(r.created_at).toLocaleDateString("id-ID", {
+          day: "2-digit",
+          month: "2-digit",
         }),
         IN:
-          r.tipe === 'in'
+          r.tipe === "in"
             ? r.qty
-            : r.tipe === 'adjust' && r.qty > 0
+            : r.tipe === "adjust" && r.qty > 0
             ? Math.abs(r.qty)
             : 0,
         OUT:
-          r.tipe === 'out'
+          r.tipe === "out"
             ? Math.abs(r.qty)
-            : r.tipe === 'adjust' && r.qty < 0
+            : r.tipe === "adjust" && r.qty < 0
             ? Math.abs(r.qty)
             : 0,
       })),
-    [selectedHistory],
+    [selectedHistory]
   );
 
   const latest10 = useMemo(
@@ -385,15 +380,15 @@ export function InventoryWidget() {
       [...selectedHistory]
         .sort(
           (a, b) =>
-            +new Date(b.created_at || '') - +new Date(a.created_at || ''),
+            +new Date(b.created_at || "") - +new Date(a.created_at || "")
         )
         .slice(0, 10),
-    [selectedHistory],
+    [selectedHistory]
   );
 
   const isLowStock =
     selectedItem &&
-    (selectedItem.status?.toLowerCase?.() === 'low' ||
+    (selectedItem.status?.toLowerCase?.() === "low" ||
       (selectedItem.batas != null &&
         selectedItem.batas > 0 &&
         selectedItem.saldo <= selectedItem.batas));
@@ -404,14 +399,14 @@ export function InventoryWidget() {
 
   const openEditModal = (item: SummaryItem) => {
     setEditingItem(item);
-    setEditHarga(item.harga != null ? String(item.harga) : '');
-    setEditBatas(item.batas != null ? String(item.batas) : '');
+    setEditHarga(item.harga != null ? String(item.harga) : "");
+    setEditBatas(item.batas != null ? String(item.batas) : "");
   };
 
   const closeEditModal = () => {
     setEditingItem(null);
-    setEditHarga('');
-    setEditBatas('');
+    setEditHarga("");
+    setEditBatas("");
     setSavingEdit(false);
   };
 
@@ -420,7 +415,7 @@ export function InventoryWidget() {
 
     const hargaNumber = parseNumberFromCurrency(editHarga);
     const batasNumber =
-      editBatas.trim() === '' ? null : parseNumberFromCurrency(editBatas);
+      editBatas.trim() === "" ? null : parseNumberFromCurrency(editBatas);
 
     try {
       setSavingEdit(true);
@@ -439,13 +434,16 @@ export function InventoryWidget() {
         payload.min_stock = batasNumber;
       }
 
-      await apiPut(`/setup/bahan/${editingItem.bahan_id}`, payload);
+      await fetchJson(`/setup/bahan/${editingItem.bahan_id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
 
       await load();
       closeEditModal();
-      showToastMessage('Data bahan berhasil diperbarui.', 'success');
+      showToastMessage("Data bahan berhasil diperbarui.", "success");
     } catch (e: any) {
-      showToastMessage(e?.message || 'Gagal menyimpan perubahan.', 'error');
+      showToastMessage(e?.message || "Gagal menyimpan perubahan.", "error");
       setSavingEdit(false);
     }
   };
@@ -463,12 +461,16 @@ export function InventoryWidget() {
     if (!confirmDelete) return;
     try {
       setDeletingId(confirmDelete.bahan_id);
-      await apiDelete(`/setup/bahan/${confirmDelete.bahan_id}`);
+
+      await fetchJson(`/setup/bahan/${confirmDelete.bahan_id}`, {
+        method: "DELETE",
+      });
+
       await load();
       closeDeleteModal();
-      showToastMessage('Bahan berhasil dihapus.', 'success');
+      showToastMessage("Bahan berhasil dihapus.", "success");
     } catch (e: any) {
-      showToastMessage(e?.message || 'Gagal menghapus bahan.', 'error');
+      showToastMessage(e?.message || "Gagal menghapus bahan.", "error");
       setDeletingId(null);
     }
   };
@@ -477,9 +479,9 @@ export function InventoryWidget() {
 
   const openAddModal = () => {
     setAddBahanId(selectedId || (summary[0]?.bahan_id ?? null));
-    setAddType('in');
-    setAddHarga('');
-    setAddQty('');
+    setAddType("in");
+    setAddHarga("");
+    setAddQty("");
     setShowAddModal(true);
     setShowStockDropdown(false);
   };
@@ -491,51 +493,51 @@ export function InventoryWidget() {
 
   const addSelectedItem = useMemo(
     () => summary.find((s) => s.bahan_id === addBahanId) || null,
-    [summary, addBahanId],
+    [summary, addBahanId]
   );
 
   const handleSubmitAdd = async () => {
     if (!addBahanId) {
-      showToastMessage('Pilih bahan terlebih dahulu.', 'error');
+      showToastMessage("Pilih bahan terlebih dahulu.", "error");
       return;
     }
     const qtyNum = parseNumberFromCurrency(addQty);
     if (!qtyNum || qtyNum <= 0) {
-      showToastMessage('Jumlah harus lebih dari 0.', 'error');
+      showToastMessage("Jumlah harus lebih dari 0.", "error");
       return;
     }
     const hargaNum =
-      addHarga.trim() === '' ? null : parseNumberFromCurrency(addHarga);
+      addHarga.trim() === "" ? null : parseNumberFromCurrency(addHarga);
 
     try {
       setSavingAdd(true);
 
       const endpoint =
-        addType === 'in' ? '/api/inventory/in' : '/api/inventory/out';
+        addType === "in" ? "/inventory/in" : "/inventory/out";
 
       const payload: any = {
         bahan_id: addBahanId,
         qty: qtyNum,
       };
-      if (addType === 'in' && hargaNum != null) {
+      if (addType === "in" && hargaNum != null) {
         payload.harga_beli = hargaNum;
       }
 
-      await fetchJson<any>(api(endpoint), {
-        method: 'POST',
+      await fetchJson<any>(endpoint, {
+        method: "POST",
         body: JSON.stringify(payload),
       });
 
       await load();
       setSelectedId(addBahanId);
       closeAddModal();
-      showToastMessage('Inventory berhasil diperbarui.', 'success');
+      showToastMessage("Inventory berhasil diperbarui.", "success");
 
       try {
-        window.dispatchEvent(new Event('inv:summary-reload'));
+        window.dispatchEvent(new Event("inv:summary-reload"));
       } catch {}
     } catch (e: any) {
-      showToastMessage(e?.message || 'Gagal menambah inventory.', 'error');
+      showToastMessage(e?.message || "Gagal menambah inventory.", "error");
       setSavingAdd(false);
     }
   };
@@ -552,13 +554,13 @@ export function InventoryWidget() {
       {/* grid: kalau belum ada yang kepilih, 1 kolom; kalau ada, 2 kolom */}
       <div
         className={cn(
-          'mt-1 grid gap-4',
-          hasSelected && 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]',
+          "mt-1 grid gap-4",
+          hasSelected && "md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]"
         )}
       >
         {/* LEFT: List Inventory */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-5">
-          {/* Toolbar di dalam kartu: Tambah + Search (kayak desain kedua) */}
+          {/* Toolbar di dalam kartu: Tambah + Search */}
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
@@ -579,11 +581,7 @@ export function InventoryWidget() {
             </div>
           </div>
 
-          {err && (
-            <div className="mb-2 text-xs text-red-600">
-              {err}
-            </div>
-          )}
+          {err && <div className="mb-2 text-xs text-red-600">{err}</div>}
 
           {loading ? (
             <Skeleton className="h-52" />
@@ -613,7 +611,7 @@ export function InventoryWidget() {
                     const batas =
                       item.batas != null && item.batas > 0 ? item.batas : null;
                     const low =
-                      item.status?.toLowerCase?.() === 'low' ||
+                      item.status?.toLowerCase?.() === "low" ||
                       (batas && item.saldo <= batas);
                     const displayName = item.bahan_nama || item.bahan_id;
 
@@ -621,15 +619,13 @@ export function InventoryWidget() {
                       <tr
                         key={item.bahan_id}
                         className={cn(
-                          'cursor-pointer border-b last:border-b-0 transition-colors',
-                          active
-                            ? 'bg-red-50/70'
-                            : 'hover:bg-gray-50',
+                          "cursor-pointer border-b last:border-b-0 transition-colors",
+                          active ? "bg-red-50/70" : "hover:bg-gray-50"
                         )}
                         // TOGGLE: klik lagi bahan yg sama => hide panel
                         onClick={() =>
                           setSelectedId((prev) =>
-                            prev === item.bahan_id ? null : item.bahan_id,
+                            prev === item.bahan_id ? null : item.bahan_id
                           )
                         }
                       >
@@ -643,7 +639,7 @@ export function InventoryWidget() {
                           </button>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
-                          {item.harga != null ? rupiah(item.harga) : '-'}
+                          {item.harga != null ? rupiah(item.harga) : "-"}
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-1">
@@ -654,7 +650,7 @@ export function InventoryWidget() {
                           </div>
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
-                          {batas ? formatQty(batas, item.satuan) : '-'}
+                          {batas ? formatQty(batas, item.satuan) : "-"}
                         </td>
                         <td className="py-2 pl-3 text-center">
                           <div className="inline-flex items-center gap-2 text-gray-500">
@@ -699,7 +695,7 @@ export function InventoryWidget() {
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 24 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
               className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-5"
             >
               {loading ? (
@@ -721,10 +717,10 @@ export function InventoryWidget() {
                         )}
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        Ambang batas stok:{' '}
+                        Ambang batas stok:{" "}
                         {selectedItem.batas
                           ? formatQty(selectedItem.batas, selectedItem.satuan)
-                          : 'Belum diatur'}
+                          : "Belum diatur"}
                       </p>
                     </div>
                     <div className="text-right">
@@ -826,17 +822,17 @@ export function InventoryWidget() {
                         <table className="min-w-full text-xs">
                           <tbody>
                             {latest10.map((r) => {
-                              const isIn = r.tipe === 'in';
-                              const isOut = r.tipe === 'out';
-                              const isAdj = r.tipe === 'adjust';
+                              const isIn = r.tipe === "in";
+                              const isOut = r.tipe === "out";
+                              const isAdj = r.tipe === "adjust";
                               const sign =
-                                isOut || (isAdj && r.qty < 0) ? '-' : '+';
+                                isOut || (isAdj && r.qty < 0) ? "-" : "+";
                               const color =
                                 isIn || (isAdj && r.qty > 0)
-                                  ? 'text-emerald-600'
+                                  ? "text-emerald-600"
                                   : isOut || (isAdj && r.qty < 0)
-                                  ? 'text-red-600'
-                                  : 'text-gray-700';
+                                  ? "text-red-600"
+                                  : "text-gray-700";
 
                               return (
                                 <tr
@@ -846,12 +842,12 @@ export function InventoryWidget() {
                                   <td className="py-1 pr-2 align-top">
                                     <span
                                       className={cn(
-                                        'inline-flex min-w-[34px] justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                                        "inline-flex min-w-[34px] justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
                                         isIn || (isAdj && r.qty > 0)
-                                          ? 'bg-emerald-50 text-emerald-700'
+                                          ? "bg-emerald-50 text-emerald-700"
                                           : isOut || (isAdj && r.qty < 0)
-                                          ? 'bg-red-50 text-red-700'
-                                          : 'bg-gray-100 text-gray-700',
+                                          ? "bg-red-50 text-red-700"
+                                          : "bg-gray-100 text-gray-700"
                                       )}
                                     >
                                       {r.tipe.toUpperCase()}
@@ -859,25 +855,25 @@ export function InventoryWidget() {
                                   </td>
                                   <td
                                     className={cn(
-                                      'py-1 px-2 align-top',
-                                      color,
+                                      "py-1 px-2 align-top",
+                                      color
                                     )}
                                   >
                                     {sign}
-                                    {Math.abs(r.qty).toLocaleString('id-ID')}{' '}
-                                    {r.satuan || selectedItem.satuan || ''}
+                                    {Math.abs(r.qty).toLocaleString("id-ID")}{" "}
+                                    {r.satuan || selectedItem.satuan || ""}
                                   </td>
                                   <td className="py-1 px-2 align-top text-gray-500 whitespace-nowrap">
                                     {new Date(
-                                      r.created_at,
-                                    ).toLocaleDateString('id-ID', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      year: 'numeric',
+                                      r.created_at
+                                    ).toLocaleDateString("id-ID", {
+                                      day: "2-digit",
+                                      month: "2-digit",
+                                      year: "numeric",
                                     })}
                                   </td>
                                   <td className="py-1 px-2 align-top text-gray-500">
-                                    {r.catatan || '-'}
+                                    {r.catatan || "-"}
                                   </td>
                                 </tr>
                               );
@@ -941,7 +937,7 @@ export function InventoryWidget() {
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
             />
             <p className="mt-1 text-[11px] text-gray-500">
-              Jika diisi, stok di bawah angka ini akan dianggap{' '}
+              Jika diisi, stok di bawah angka ini akan dianggap{" "}
               <b>Low Stock</b> di halaman Inventory.
             </p>
 
@@ -958,11 +954,11 @@ export function InventoryWidget() {
                 onClick={handleSaveEdit}
                 disabled={savingEdit}
                 className={cn(
-                  'px-3 py-1.5 text-xs rounded-lg bg-red-700 text-white hover:bg-red-800',
-                  savingEdit && 'opacity-60 cursor-not-allowed',
+                  "px-3 py-1.5 text-xs rounded-lg bg-red-700 text-white hover:bg-red-800",
+                  savingEdit && "opacity-60 cursor-not-allowed"
                 )}
               >
-                {savingEdit ? 'Menyimpan...' : 'Simpan'}
+                {savingEdit ? "Menyimpan..." : "Simpan"}
               </button>
             </div>
           </div>
@@ -986,10 +982,10 @@ export function InventoryWidget() {
               </button>
             </div>
             <p className="text-xs text-gray-700 mb-3">
-              Yakin ingin menghapus bahan{' '}
+              Yakin ingin menghapus bahan{" "}
               <span className="font-semibold">
                 {confirmDelete.bahan_nama || confirmDelete.bahan_id}
-              </span>{' '}
+              </span>{" "}
               dari Setup? Data inventory yang terkait bahan ini juga akan
               terpengaruh.
             </p>
@@ -1006,14 +1002,14 @@ export function InventoryWidget() {
                 onClick={handleDelete}
                 disabled={deletingId === confirmDelete.bahan_id}
                 className={cn(
-                  'px-3 py-1.5 text-xs rounded-lg bg-red-700 text-white hover:bg-red-800',
+                  "px-3 py-1.5 text-xs rounded-lg bg-red-700 text-white hover:bg-red-800",
                   deletingId === confirmDelete.bahan_id &&
-                    'opacity-60 cursor-not-allowed',
+                    "opacity-60 cursor-not-allowed"
                 )}
               >
                 {deletingId === confirmDelete.bahan_id
-                  ? 'Menghapus...'
-                  : 'Hapus'}
+                  ? "Menghapus..."
+                  : "Hapus"}
               </button>
             </div>
           </div>
@@ -1048,7 +1044,7 @@ export function InventoryWidget() {
                 className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
               >
                 <span className="truncate">
-                  {addSelectedItem?.bahan_nama || 'Pilih bahan'}
+                  {addSelectedItem?.bahan_nama || "Pilih bahan"}
                 </span>
                 <ChevronDown className="h-4 w-4 text-gray-400" />
               </button>
@@ -1063,14 +1059,13 @@ export function InventoryWidget() {
                         setShowStockDropdown(false);
                       }}
                       className={cn(
-                        'flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50',
-                        addBahanId === s.bahan_id &&
-                          'bg-red-50/80',
+                        "flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50",
+                        addBahanId === s.bahan_id && "bg-red-50/80"
                       )}
                     >
                       <span className="truncate">{s.bahan_nama}</span>
                       <span className="ml-2 text-[11px] text-gray-400">
-                        {s.satuan || ''}
+                        {s.satuan || ""}
                       </span>
                     </button>
                   ))}
@@ -1088,13 +1083,13 @@ export function InventoryWidget() {
               <button
                 type="button"
                 onClick={() => {
-                  setAddType('in');
+                  setAddType("in");
                 }}
                 className={cn(
-                  'w-1/2 rounded-full border px-3 py-2 text-xs font-semibold',
-                  addType === 'in'
-                    ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                    : 'bg-white text-gray-600 border-gray-200',
+                  "w-1/2 rounded-full border px-3 py-2 text-xs font-semibold",
+                  addType === "in"
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                    : "bg-white text-gray-600 border-gray-200"
                 )}
               >
                 IN
@@ -1102,14 +1097,14 @@ export function InventoryWidget() {
               <button
                 type="button"
                 onClick={() => {
-                  setAddType('out');
-                  setAddHarga('');
+                  setAddType("out");
+                  setAddHarga("");
                 }}
                 className={cn(
-                  'w-1/2 rounded-full border px-3 py-2 text-xs font-semibold',
-                  addType === 'out'
-                    ? 'bg-red-100 text-red-700 border-red-300'
-                    : 'bg-white text-gray-600 border-gray-200',
+                  "w-1/2 rounded-full border px-3 py-2 text-xs font-semibold",
+                  addType === "out"
+                    ? "bg-red-100 text-red-700 border-red-300"
+                    : "bg-white text-gray-600 border-gray-200"
                 )}
               >
                 OUT
@@ -1117,7 +1112,7 @@ export function InventoryWidget() {
             </div>
 
             {/* Harga Beli hanya untuk IN */}
-            {addType === 'in' && (
+            {addType === "in" && (
               <>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
                   Harga Beli
@@ -1138,7 +1133,7 @@ export function InventoryWidget() {
                 Jumlah
               </label>
               <span className="text-xs text-gray-500">
-                Satuan: {addSelectedItem?.satuan || '-'}
+                Satuan: {addSelectedItem?.satuan || "-"}
               </span>
             </div>
             <div className="mb-5 flex items-center gap-2">
@@ -1150,7 +1145,7 @@ export function InventoryWidget() {
                 className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
               />
               <div className="w-16 text-center text-sm font-semibold text-gray-700">
-                {addSelectedItem?.satuan || ''}
+                {addSelectedItem?.satuan || ""}
               </div>
             </div>
 
@@ -1159,11 +1154,11 @@ export function InventoryWidget() {
               onClick={handleSubmitAdd}
               disabled={savingAdd}
               className={cn(
-                'mt-1 w-full rounded-full bg-red-700 py-2.5 text-sm font-semibold text-white hover:bg-red-800',
-                savingAdd && 'opacity-60 cursor-not-allowed',
+                "mt-1 w-full rounded-full bg-red-700 py-2.5 text-sm font-semibold text-white hover:bg-red-800",
+                savingAdd && "opacity-60 cursor-not-allowed"
               )}
             >
-              {savingAdd ? 'Menyimpan...' : 'Tambah Inventory'}
+              {savingAdd ? "Menyimpan..." : "Tambah Inventory"}
             </button>
           </div>
         </div>
@@ -1174,14 +1169,14 @@ export function InventoryWidget() {
         <div className="fixed top-20 right-6 z-50">
           <div
             className={cn(
-              'rounded-2xl px-4 py-3 text-sm shadow-lg border flex items-center gap-2 bg-white',
-              toastType === 'success'
-                ? 'border-emerald-200 text-emerald-700'
-                : 'border-red-200 text-red-700',
+              "rounded-2xl px-4 py-3 text-sm shadow-lg border flex items-center gap-2 bg-white",
+              toastType === "success"
+                ? "border-emerald-200 text-emerald-700"
+                : "border-red-200 text-red-700"
             )}
           >
             <span className="font-medium">
-              {toastType === 'success' ? 'Berhasil' : 'Gagal'}
+              {toastType === "success" ? "Berhasil" : "Gagal"}
             </span>
             <span className="text-xs">{toastMsg}</span>
           </div>

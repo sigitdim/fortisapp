@@ -1,10 +1,14 @@
 "use client";
+
+import type React from "react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import SidebarNav from "@/components/SidebarNav";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { useLicense } from "@/hooks/useLicense";
 
-/* ====== NAV ITEMS (persis sidebar lama) ====== */
+/* ================= NAV ITEMS ================= */
+
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "grid" },
   { href: "/hpp", label: "Kalkulator HPP", icon: "calc" },
@@ -17,161 +21,375 @@ const NAV = [
   { href: "/promo/tebus", label: "Kalkulator Tebus Murah", icon: "tag" },
 
   { href: "/inventory", label: "Inventory", icon: "boxes" },
-  { href: "/setup", label: "Setup", icon: "settings" },
+  { href: "/fortis-insight", label: "Fortis Insight", icon: "book" },
+  { href: "/setup/bahan", label: "Setup", icon: "settings" },
   { href: "/tutorial", label: "Tutorial", icon: "edu" },
 ];
 
-/* ====== ICONS (simple SVG, style sama seperti lama) ====== */
+/* ================= ICON SET ================= */
+
 function Icon({ name }: { name: string }) {
-  const cls = "w-[20px] h-[20px]";
+  const cls = "h-5 w-5";
+  const s = {
+    className: cls,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
   switch (name) {
-    case "grid":     return <svg viewBox="0 0 24 24" className={cls}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>;
-    case "calc":     return <svg viewBox="0 0 24 24" className={cls}><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>;
-    case "book":     return <svg viewBox="0 0 24 24" className={cls}><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20"/><path d="M20 22V6a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 6.5V19.5"/></svg>;
-    case "percent":  return <svg viewBox="0 0 24 24" className={cls}><path d="M19 5L5 19"/><circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/></svg>;
-    case "box":      return <svg viewBox="0 0 24 24" className={cls}><path d="M21 16V8l-9-4-9 4v8l9 4 9-4z"/><path d="M3.5 8.5L12 12l8.5-3.5M12 12v8"/></svg>;
-    case "gift":     return <svg viewBox="0 0 24 24" className={cls}><path d="M20 12v8H4v-8M2 7h20v5H2z"/><path d="M12 7v13"/><path d="M12 7s-2.5-5-5-3 5 3 5 3zm0 0s2.5-5 5-3-5 3-5 3z"/></svg>;
-    case "tag":      return <svg viewBox="0 0 24 24" className={cls}><path d="M20 10l-8-8H4v8l8 8 8-8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>;
-    case "boxes":    return <svg viewBox="0 0 24 24" className={cls}><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>;
-    case "settings": return <svg viewBox="0 0 24 24" className={cls}><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 6.04 3.2l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06A2 2 0 1 1 21.8 6.04l-.06.06a1.65 1.65 0 0 0-.33 1.82V8c0 .67.39 1.27 1 1.51H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
-    case "edu":      return <svg viewBox="0 0 24 24" className={cls}><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 .5 6 3 6 3s6-2.5 6-3v-5"/></svg>;
-    default:         return <span className={cls} />;
+    case "grid":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <rect x="4" y="4" width="6" height="6" rx="1.5" />
+          <rect x="14" y="4" width="6" height="6" rx="1.5" />
+          <rect x="4" y="14" width="6" height="6" rx="1.5" />
+          <rect x="14" y="14" width="6" height="6" rx="1.5" />
+        </svg>
+      );
+    case "calc":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <rect x="5" y="3" width="14" height="18" rx="2" />
+          <path d="M8 7h8" />
+          <path d="M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01" />
+        </svg>
+      );
+    case "book":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M6.5 4H18a2 2 0 0 1 2 2v14H7a3 3 0 0 1-3-3V6.5A2.5 2.5 0 0 1 6.5 4Z" />
+          <path d="M8 4v13" />
+        </svg>
+      );
+    case "percent":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M19 5L5 19" />
+          <circle cx="8" cy="8" r="2.2" />
+          <circle cx="16" cy="16" r="2.2" />
+        </svg>
+      );
+    case "box":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z" />
+          <path d="M3 7.5v9L12 21l9-4.5v-9" />
+        </svg>
+      );
+    case "gift":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <rect x="3" y="9" width="18" height="4" rx="1" />
+          <path d="M5 13v7h14v-7" />
+          <path d="M12 6v14" />
+          <path d="M12 6s-2.5-3-4.5-2S9 8 12 8" />
+          <path d="M12 6s2.5-3 4.5-2S15 8 12 8" />
+        </svg>
+      );
+    case "tag":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M7 4h6l7 7-6 6-7-7V4Z" />
+          <circle cx="9" cy="8" r="1.2" />
+        </svg>
+      );
+    case "boxes":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z" />
+          <path d="M3 7.5v9L12 21l9-4.5v-9" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.9 1.9 0 0 0 .38 2.1l.03.03a1.8 1.8 0 1 1-2.54 2.54l-.03-.03a1.9 1.9 0 0 0-2.1-.38 1.9 1.9 0 0 0-1.1 1.73V21a1.8 1.8 0 1 1-3.6 0v-.01A1.9 1.9 0 0 0 9.3 19c-.34-.15-.73-.2-1.1-.1a1.9 1.9 0 0 0-1 .55l-.03.03a1.8 1.8 0 1 1-2.54-2.54l.03-.03A1.9 1.9 0 0 0 5 15.4a1.9 1.9 0 0 0-1.73-1.1H3a1.8 1.8 0 0 1 0-3.6h.01A1.9 1.9 0 0 0 4.7 9.3c.15-.34.2-.73.1-1.1a1.9 1.9 0 0 0-.55-1L4.22 7.2a1.8 1.8 0 0 1 2.54-2.54l.03.03A1.9 1.9 0 0 0 9.4 5c.34.15.73.2 1.1.1A1.9 1.9 0 0 0 11.6 3.5V3a1.8 1.8 0 0 1 3.6 0v.01a1.9 1.9 0 0 0 1.1 1.59c.34.15.73.2 1.1.1a1.9 1.9 0 0 0 1-.55l.03-.03a1.8 1.8 0 1 1 2.54 2.54l-.03.03A1.9 1.9 0 0 0 19.5 9.3c-.15.34-.2.73-.1 1.1a1.9 1.9 0 0 0 1.59 1.1H21a1.8 1.8 0 0 1 0 3.6h-.01A1.9 1.9 0 0 0 19.4 15Z" />
+        </svg>
+      );
+    case "edu":
+      return (
+        <svg viewBox="0 0 24 24" {...s}>
+          <path d="M3 10 12 5l9 5-9 5-9-5Z" />
+          <path d="M6 12v5c0 .7 3.5 2.5 6 3 2.5-.5 6-2.3 6-3v-5" />
+        </svg>
+      );
+    default:
+      return <span className={cls} />;
   }
 }
 
+/* ================= HELPERS ================= */
+
+function isNavActive(pathname: string | null, href: string) {
+  if (!pathname) return false;
+  const clean = (s: string) =>
+    s.endsWith("/") && s !== "/" ? s.slice(0, -1) : s;
+  const p = clean(pathname);
+  const h = clean(href);
+  return p === h || p.startsWith(h + "/");
+}
+
+function formatExpiry(raw?: string | null) {
+  if (!raw) return "27-03-26";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}-${mm}-${yy}`;
+}
+
+/* ================= MAIN SHELL ================= */
+
 export default function SidebarShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { expiresAt } = useLicense();
 
-  /* state buka-tutup */
   const [openDesktop, setOpenDesktop] = useState(true);
   const [openMobile, setOpenMobile] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
 
+  const [displayName, setDisplayName] = useState("User");
+  const [expiryLabel, setExpiryLabel] = useState("27-03-26");
+
+  // detect desktop / mobile
   useEffect(() => {
     const mm = window.matchMedia("(min-width: 1024px)");
-    const saved = localStorage.getItem("sidebar_open_desktop");
+    setIsDesktop(mm.matches);
+
+    const saved = window.localStorage.getItem("sidebar_open_desktop");
     setOpenDesktop(saved ? saved === "1" : mm.matches);
-    const handler = () => !mm.matches && setOpenMobile(false);
+
+    const handler = (ev: MediaQueryListEvent) => {
+      setIsDesktop(ev.matches);
+      if (!ev.matches) setOpenMobile(false);
+    };
+
     mm.addEventListener("change", handler);
     return () => mm.removeEventListener("change", handler);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("sidebar_open_desktop", openDesktop ? "1" : "0");
+    window.localStorage.setItem("sidebar_open_desktop", openDesktop ? "1" : "0");
   }, [openDesktop]);
 
-  /* kelas menu ala sidebar lama */
+  // nama user dari Supabase
+  useEffect(() => {
+    const supabase = createClientComponentClient();
+    supabase.auth.getUser().then(({ data }) => {
+      const user = data.user;
+      if (!user) return;
+
+      const meta: any = user.user_metadata || {};
+      const nm =
+        meta.username ||
+        meta.display_name ||
+        meta.nama ||
+        meta.full_name ||
+        meta.name ||
+        user.email;
+
+      setDisplayName(nm || "User");
+    });
+  }, []);
+
+  // expiry dari license hook
+  useEffect(() => {
+    if (expiresAt) setExpiryLabel(formatExpiry(expiresAt));
+  }, [expiresAt]);
+
+  const isCollapsedDesktop = isDesktop && !openDesktop;
+
   const baseItem =
-    "group flex items-center gap-3 rounded-full px-4 py-3 text-[16px] transition-colors";
-  const inactive =
-    "hover:bg-neutral-50 text-black";
+    "group flex items-center gap-3 rounded-full px-3 py-2 text-sm md:text-[15px] transition-colors";
+  const inactive = "hover:bg-neutral-50 text-slate-800";
   const activeExpanded =
-    "bg-yellow-400 text-black font-semibold shadow-sm";
-  const iconWrap = "inline-flex w-[22px] justify-center";
+    "bg-yellow-400 text-slate-900 font-semibold shadow-sm";
+
+  // sidebar classes
+  const asideClasses = [
+    "fixed top-0 left-0 z-40 h-svh border-r bg-white shadow-xl",
+    "transition-transform duration-300 ease-out will-change-transform",
+  ];
+
+  if (isDesktop) {
+    asideClasses.push(
+      openDesktop ? "w-60 lg:w-60" : "w-[72px] lg:w-[72px]",
+      "translate-x-0"
+    );
+  } else {
+    asideClasses.push(
+      "w-[260px] max-w-[80vw]",
+      openMobile ? "translate-x-0" : "-translate-x-full"
+    );
+  }
+
+  const mainPadding = isDesktop
+    ? openDesktop
+      ? "lg:pl-60"
+      : "lg:pl-[72px]"
+    : "lg:pl-0";
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      {/* Hamburger mobile */}
-      <button
-        onClick={() => setOpenMobile(true)}
-        className="lg:hidden fixed left-4 top-3 z-50 rounded-xl border bg-white/90 px-3 py-2 shadow-sm"
-      >
-        ☰
-      </button>
+    <div className="min-h-screen w-full bg-[#f5f5f5]">
+      {/* ===== MOBILE TOP BAR (tombol buka drawer) ===== */}
+      {!isDesktop && (
+        <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur lg:hidden">
+          <div className="flex h-12 w-full items-center px-3">
+            <button
+              onClick={() => setOpenMobile(true)}
+              className="mr-2 flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg shadow-sm active:scale-95 transition-transform"
+            >
+              ☰
+            </button>
+            <div className="flex-1 text-center text-sm font-extrabold">
+              <span className="text-slate-900">Fortis</span>
+              <span className="text-red-600">App</span>
+            </div>
+            <div className="w-9" />
+          </div>
+        </header>
+      )}
 
-      {/* Sidebar (expanded look like old sidebar) */}
-<aside
-  className={[
-    "fixed z-40 top-0 left-0 h-svh border-r bg-white transition-all",
-    openMobile ? "translate-x-0" : "-translate-x-full",
-    "lg:translate-x-0",
-    // pastikan width: 256px saat open, 72px saat collapse
-    openDesktop ? "lg:w-[256px]" : "lg:w-[72px]",
-  ].join(" ")}
->
-        {/* Brand + collapse */}
-        <div className="px-5 pt-6 pb-2 flex items-center justify-between">
-          <span className="text-[28px] font-extrabold select-none leading-none">
-            <span className="text-black">Fortis</span>
-            <span className="text-red-600">App</span>
-          </span>
-          <button
-            onClick={() => setOpenDesktop((v) => !v)}
-            className="hidden lg:inline-flex rounded-full border w-8 h-8 items-center justify-center hover:bg-neutral-50"
-            title={openDesktop ? "Collapse" : "Expand"}
-          >
-            {openDesktop ? "⟨" : "⟩"}
-          </button>
-          <button
-            onClick={() => setOpenMobile(false)}
-            className="lg:hidden rounded-full border w-8 h-8 flex items-center justify-center"
-          >
-            ✕
-          </button>
+      {/* ===== SIDEBAR (desktop + mobile drawer) ===== */}
+      <aside className={asideClasses.join(" ")}>
+        {/* HEADER DALAM SIDEBAR */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          {isCollapsedDesktop ? (
+            <div className="h-8 w-full" />
+          ) : (
+            <span className="select-none text-[20px] font-extrabold leading-none sm:text-[22px]">
+              <span className="text-slate-900">Fortis</span>
+              <span className="text-red-600">App</span>
+            </span>
+          )}
+
+          <div className="flex items-center gap-2">
+            {/* Burger DESKTOP (buat collapse / expand) */}
+            {isDesktop && (
+              <button
+                onClick={() => setOpenDesktop((v) => !v)}
+                className="hidden h-8 w-8 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg shadow-sm lg:flex active:scale-95 transition-transform"
+              >
+                ☰
+              </button>
+            )}
+
+            {/* Tombol CLOSE MOBILE di dalam drawer */}
+            {!isDesktop && (
+              <button
+                onClick={() => setOpenMobile(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white lg:hidden active:scale-95 transition-transform"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* NAV */}
-        <nav className="px-4 pb-5 overflow-y-auto h-[calc(100svh-70px)]">
-          {NAV.map((it, i) =>
-            (it as any).type === "section" ? (
-              <div
-                key={`sec-${i}`}
-                className="mt-6 mb-2 px-2 text-[14px] font-semibold text-neutral-500"
-              >
-                {openDesktop ? (it as any).label : "—"}
-              </div>
-            ) : (
-              <Link
-                key={(it as any).href}
-                href={(it as any).href}
-                onClick={() => setOpenMobile(false)}
-                className={[
-                  baseItem,
-                  pathname === (it as any).href && openDesktop
-                    ? activeExpanded
-                    : inactive,
-                  !openDesktop && "rounded-xl px-2 py-2",
-                ].join(" ")}
-              >
-                <span
-                  className={[
-                    iconWrap,
-                    pathname === (it as any).href && !openDesktop
-                      ? "bg-yellow-400 text-black rounded-lg w-8 h-8 items-center justify-center"
-                      : "",
-                  ].join(" ")}
+        {/* NAV + PRO CARD */}
+        <div className="flex h-[calc(100svh-52px)] flex-col px-3 pb-3">
+          <nav className="flex-1 overflow-y-auto pt-1">
+            {NAV.map((it, i) =>
+              (it as any).type === "section" ? (
+                !isCollapsedDesktop && (
+                  <div
+                    key={`sec-${i}`}
+                    className="mt-4 mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500"
+                  >
+                    {(it as any).label}
+                  </div>
+                )
+              ) : (
+                <Link
+                  key={(it as any).href}
+                  href={(it as any).href}
+                  onClick={() => {
+                    if (!isDesktop) setOpenMobile(false);
+                  }}
+                  className={
+                    isCollapsedDesktop
+                      ? [
+                          "mb-1.5 flex items-center justify-center rounded-full py-2 transition-colors",
+                          isNavActive(pathname, (it as any).href)
+                            ? "bg-yellow-400 text-slate-900 shadow-sm"
+                            : "text-slate-800 hover:bg-neutral-100",
+                        ].join(" ")
+                      : [
+                          baseItem,
+                          isNavActive(pathname, (it as any).href)
+                            ? activeExpanded
+                            : inactive,
+                        ].join(" ")
+                  }
                 >
-                  <Icon name={(it as any).icon} />
-                </span>
+                  <span className="inline-flex w-6 justify-center">
+                    <Icon name={(it as any).icon} />
+                  </span>
+                  {!isCollapsedDesktop && (
+                    <span className="truncate">{(it as any).label}</span>
+                  )}
+                </Link>
+              )
+            )}
+          </nav>
 
-                {/* label disembunyikan saat collapse */}
-                <span className={openDesktop ? "block" : "hidden lg:block"}>
-                  {(it as any).label}
-                </span>
+          {/* PRO badge */}
+          {isCollapsedDesktop ? (
+            <div className="mt-3 flex justify-center pb-1">
+              <Link
+                href="/billing"
+                onClick={() => {
+                  if (!isDesktop) setOpenMobile(false);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white shadow-md hover:bg-red-700 active:scale-95 transition-transform"
+              >
+                PRO
               </Link>
-            )
+            </div>
+          ) : (
+            <div className="mt-3">
+              <Link
+                href="/billing"
+                onClick={() => {
+                  if (!isDesktop) setOpenMobile(false);
+                }}
+                className="flex items-center gap-3 rounded-2xl bg-red-600 px-3 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-red-700 active:scale-[0.98]"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px]">
+                  PRO
+                </div>
+                <div className="leading-tight">
+                  <div className="truncate">{displayName} | Pro</div>
+                  <div className="text-[9px] font-normal opacity-90">
+                    Active until {expiryLabel}
+                  </div>
+                </div>
+              </Link>
+            </div>
           )}
-        </nav>
+        </div>
       </aside>
 
-      {/* Overlay mobile */}
-      {openMobile && (
+      {/* ===== OVERLAY MOBILE (gelap) ===== */}
+      {!isDesktop && openMobile && (
         <div
-          className="lg:hidden fixed inset-0 z-30 bg-black/30"
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[1px] transition-opacity duration-200 lg:hidden"
           onClick={() => setOpenMobile(false)}
         />
       )}
 
-      {/* Konten; padding kiri mengikuti keadaan sidebar */}
-<main
-  className={[
-    // padding konten konsisten di shell (bukan di page)
-    "transition-[padding] px-4 md:px-6",
-    // ruang kiri mengikuti lebar sidebar
-    openDesktop ? "lg:pl-[256px]" : "lg:pl-[72px]",
-  ].join(" ")}
->
-  {children}
-</main>
+      {/* ===== MAIN CONTENT ===== */}
+      <main className={["transition-[padding]", mainPadding].join(" ")}>
+        <div className="w-full px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
+          {children}
+        </div>
+      </main>
     </div>
   );
 }
+
