@@ -5,13 +5,12 @@ import React, {
   useContext,
   useEffect,
   useState,
-  ReactNode,
+  type ReactNode,
 } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-/**
- * Bentuk nilai context owner.
- */
+/* ========= Bentuk nilai context owner ========= */
+
 type OwnerContextValue = {
   ownerId: string | null;
   loadingOwner: boolean;
@@ -20,11 +19,11 @@ type OwnerContextValue = {
 
 const OwnerContext = createContext<OwnerContextValue | undefined>(undefined);
 
-/**
- * Provider global untuk owner_id, dibaca dari Supabase session.
- */
+/* ========= Provider global untuk owner_id ========= */
+
 export default function OwnerProvider({ children }: { children: ReactNode }) {
   const supabase = createClientComponentClient();
+
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loadingOwner, setLoadingOwner] = useState(true);
   const [errorOwner, setErrorOwner] = useState<string | null>(null);
@@ -37,7 +36,7 @@ export default function OwnerProvider({ children }: { children: ReactNode }) {
         setLoadingOwner(true);
         setErrorOwner(null);
 
-        // Ambil session aktif
+        // 1. Ambil session aktif
         const { data, error } = await supabase.auth.getSession();
 
         if (error) {
@@ -61,6 +60,7 @@ export default function OwnerProvider({ children }: { children: ReactNode }) {
 
         const user: any = session.user;
 
+        // 2. Ambil owner_id dari user_metadata (kontrak multi-user)
         const oid: string | undefined =
           user?.user_metadata?.owner_id ||
           user?.raw_user_meta_data?.owner_id;
@@ -74,13 +74,38 @@ export default function OwnerProvider({ children }: { children: ReactNode }) {
             }
           );
           if (!cancelled) {
-            setErrorOwner(
-              "owner_id tidak ditemukan di akun ini. Hubungi admin."
-            );
+            setErrorOwner("owner_id tidak ditemukan di akun ini. Hubungi admin.");
           }
           return;
         }
 
+        // 3. Failsafe: sinkronisasi customer_email ke tabel profiles
+        //    (buat sistem membership Mayar → FortisApp)
+        try {
+          const email: string | null = user?.email ?? null;
+
+          if (email) {
+            const { error: profileErr } = await supabase
+              .from("profiles")
+              .update({ customer_email: email })
+              .eq("user_id", user.id);
+
+            if (profileErr) {
+              console.error(
+                "[OwnerProvider] error update profiles.customer_email:",
+                profileErr
+              );
+            }
+          } else {
+            console.warn(
+              "[OwnerProvider] user.email kosong, skip sync profiles.customer_email"
+            );
+          }
+        } catch (syncErr) {
+          console.error("[OwnerProvider] exception sync profiles:", syncErr);
+        }
+
+        // 4. Set ownerId ke context
         if (!cancelled) {
           setOwnerId(oid);
         }
@@ -117,10 +142,9 @@ export default function OwnerProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Hook untuk pakai nilai owner di mana saja di dalam AppShell.
- */
-export function useOwner() {
+/* ========= Hook untuk pakai owner di mana saja ========= */
+
+export function useOwner(): OwnerContextValue {
   const ctx = useContext(OwnerContext);
   if (!ctx) {
     throw new Error("useOwner must be used within an OwnerProvider");

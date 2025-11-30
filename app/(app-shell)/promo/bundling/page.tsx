@@ -34,7 +34,6 @@ function classForPercent(pct: number) {
   return "text-red-500";
 }
 
-/** Clamp biar gak muncul  -92400% */
 function formatPercent(pct: number) {
   const clamped = Math.max(-100, Math.min(300, pct));
   return `${Math.round(clamped)}%`;
@@ -45,12 +44,6 @@ function parseNumberFromCurrency(input: string): number {
   return digits ? parseInt(digits, 10) : 0;
 }
 
-/**
- * Normalisasi angka uang:
- * - Kalau sangat besar (>= 1.000.000) dan kelipatan 1000,
- *   diasumsikan masih “per 1000” → dibagi 1000.
- * - Kalau tidak, pakai apa adanya.
- */
 function normalizeMoney(value: number | null | undefined): number {
   const v = typeof value === "number" ? value : 0;
   if (v >= 1_000_000 && v % 1_000 === 0) {
@@ -58,6 +51,45 @@ function normalizeMoney(value: number | null | undefined): number {
     if (candidate < 500_000) return candidate;
   }
   return v;
+}
+
+/* ========= AI copy untuk BUNDLING ========= */
+
+function getBundlingInsight(profitPct: number): string {
+  if (!Number.isFinite(profitPct)) profitPct = 0;
+
+  if (profitPct < 5) {
+    return (
+      "Bundling ini terlalu agresif. Margin hampir habis, sebaiknya hanya dipakai " +
+      "untuk momen khusus (launching / cuci gudang) dan dibatasi kuotanya."
+    );
+  }
+
+  if (profitPct < 15) {
+    return (
+      "Profit bundling sangat tipis. Batasi durasi promo, pastikan bundling benar-benar menaikkan volume, " +
+      "dan kombinasikan dengan upsell produk lain yang marginnya lebih tinggi."
+    );
+  }
+
+  if (profitPct < 30) {
+    return (
+      "Bundling masih aman tapi margin mulai menipis. Cocok untuk campaign jangka pendek " +
+      "atau weekday promo untuk narik traffic."
+    );
+  }
+
+  if (profitPct < 50) {
+    return (
+      "Bundling ini cukup sehat. Kamu masih punya ruang profit yang nyaman sekaligus memberi harga menarik. " +
+      "Bisa dipakai sebagai paket andalan mingguan/bulanan."
+    );
+  }
+
+  return (
+    "Bundling ini sangat sehat. Margin masih tebal walaupun sudah digabung dan didiskon, " +
+    "kamu bisa lebih agresif di promosi (iklan, voucher, affiliate) tanpa takut rugi."
+  );
 }
 
 /* ========= page ========= */
@@ -70,11 +102,11 @@ export default function PromoBundlingPage() {
   const [menu1, setMenu1] = useState<string | null>(null);
   const [menu2, setMenu2] = useState<string | null>(null);
   const [targetInput, setTargetInput] = useState<string>("30000");
+  const [aiNote, setAiNote] = useState<string | null>(null);
 
-  // DEFAULT: pilih 2 menu dengan profit tertinggi & tidak sama
+  // DEFAULT: 2 menu dengan profit tertinggi
   useEffect(() => {
     if (!list.length) return;
-    // kalau user sudah pernah pilih, jangan di-override
     if (menu1 && menu2) return;
 
     const withProfit = list.map((p) => {
@@ -87,7 +119,6 @@ export default function PromoBundlingPage() {
       };
     });
 
-    // urutkan dari profit terbesar ke terkecil
     withProfit.sort((a, b) => b.profit - a.profit);
 
     const best = withProfit[0]?.id;
@@ -112,12 +143,12 @@ export default function PromoBundlingPage() {
 
   if (!product1 || !product2) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+      <div className="p-6 md:p-8">
         <div className="mx-auto max-w-6xl">
-          <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
             Kalkulator Promo - Bundling
           </h1>
-          <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
+          <div className="mt-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-600">
               {loading
                 ? "Memuat daftar menu..."
@@ -129,7 +160,7 @@ export default function PromoBundlingPage() {
     );
   }
 
-  // NORMALISASI SEMUA ANGKA
+  // NORMALISASI ANGKA
   const hpp1 = normalizeMoney(product1.hpp);
   const ovh1 = normalizeMoney(product1.overhead);
   const hj1 = normalizeMoney(product1.hargaJual);
@@ -149,17 +180,45 @@ export default function PromoBundlingPage() {
   const profitMenu1 = calcProfitPercent(hpp1, ovh1, hj1);
   const profitMenu2 = calcProfitPercent(hpp2, ovh2, hj2);
 
+  /* ====== Bantuan AI bundling ====== */
+  const handleAiClick = () => {
+    if (!totalCost) return;
+
+    const currentPrice =
+      targetPrice || Math.round((hj1 || 0) + (hj2 || 0)) || Math.round(totalCost * 1.6);
+
+    const targetMargin = 0.5; // 50% margin ideal
+    let suggested = Math.round(totalCost / (1 - targetMargin));
+
+    if (suggested >= currentPrice) {
+      suggested = Math.round((totalCost + currentPrice) / 2);
+    }
+
+    if (suggested <= totalCost) {
+      suggested = Math.round(totalCost * 1.1);
+    }
+
+    const suggestedProfitPct = calcProfitPercentFromCost(totalCost, suggested);
+
+    setTargetInput(String(suggested));
+    setAiNote(
+      `AI menyarankan harga bundling sekitar ${rupiah(
+        suggested
+      )} dengan perkiraan profit ${formatPercent(
+        suggestedProfitPct
+      )}. Kamu masih bisa atur ulang jika ingin lebih agresif atau lebih aman.`
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+    <div className="p-6 md:p-8">
       <div className="mx-auto max-w-6xl">
-        {/* TITLE */}
-        <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
           Kalkulator Promo - Bundling
         </h1>
 
-        {/* KARTU UTAMA */}
-        <div className="mt-6 rounded-[28px] bg-white px-6 py-6 shadow-sm">
-          {/* ====== BARIS PILIH MENU 1 & 2 ====== */}
+        <div className="mt-2 rounded-2xl border border-gray-200 bg-white px-6 py-6 shadow-sm">
+          {/* PILIH MENU 1 & 2 */}
           <div className="grid gap-6 md:grid-cols-2">
             {/* MENU 1 */}
             <div className="space-y-3">
@@ -170,7 +229,10 @@ export default function PromoBundlingPage() {
               <div className="inline-flex w-full items-center rounded-full border border-gray-300 bg-white px-4 py-2">
                 <select
                   value={menu1 ?? ""}
-                  onChange={(e) => setMenu1(e.target.value)}
+                  onChange={(e) => {
+                    setMenu1(e.target.value);
+                    setAiNote(null);
+                  }}
                   className="w-full bg-transparent text-sm text-gray-900 outline-none"
                 >
                   {list.map((p) => (
@@ -181,7 +243,7 @@ export default function PromoBundlingPage() {
                 </select>
               </div>
 
-              <div className="mt-2 rounded-[24px] border border-gray-200 bg-white px-5 py-4">
+              <div className="mt-2 rounded-2xl border border-gray-200 bg-white px-5 py-4">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="text-lg font-semibold text-gray-900">
                     {product1.name}
@@ -224,7 +286,10 @@ export default function PromoBundlingPage() {
               <div className="inline-flex w-full items-center rounded-full border border-gray-300 bg-white px-4 py-2">
                 <select
                   value={menu2 ?? ""}
-                  onChange={(e) => setMenu2(e.target.value)}
+                  onChange={(e) => {
+                    setMenu2(e.target.value);
+                    setAiNote(null);
+                  }}
                   className="w-full bg-transparent text-sm text-gray-900 outline-none"
                 >
                   {list.map((p) => (
@@ -235,7 +300,7 @@ export default function PromoBundlingPage() {
                 </select>
               </div>
 
-              <div className="mt-2 rounded-[24px] border border-gray-200 bg-white px-5 py-4">
+              <div className="mt-2 rounded-2xl border border-gray-200 bg-white px-5 py-4">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="text-lg font-semibold text-gray-900">
                     {product2.name}
@@ -270,10 +335,9 @@ export default function PromoBundlingPage() {
             </div>
           </div>
 
-          {/* GARIS PEMISAH */}
+          {/* TARGET + HASIL */}
           <div className="mt-8 border-t border-gray-100" />
 
-          {/* ====== TARGET BUNDLING + HASIL ====== */}
           <div className="mt-6">
             <p className="text-sm font-semibold text-gray-900">
               Target Harga Bundling
@@ -283,22 +347,27 @@ export default function PromoBundlingPage() {
               <input
                 type="text"
                 value={targetInput}
-                onChange={(e) => setTargetInput(e.target.value)}
+                onChange={(e) => {
+                  setTargetInput(e.target.value);
+                  setAiNote(null);
+                }}
                 placeholder="Rp 30.000"
                 className="h-11 w-full flex-1 rounded-full border border-gray-300 bg-white px-5 text-sm font-medium text-gray-900 placeholder:text-gray-400 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               />
               <button
                 type="button"
-                onClick={() =>
-                  alert("Bantuan AI untuk bundling akan segera tersedia")
-                }
+                onClick={handleAiClick}
                 className="h-11 shrink-0 rounded-full bg-red-600 px-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
               >
-                Bantuan AI ➜
+                BANTUAN AI ➜
               </button>
             </div>
 
-            <div className="mt-4 rounded-[24px] border-2 border-red-500 bg-white px-6 py-5">
+            {aiNote && (
+              <p className="mt-2 text-[11px] text-gray-500">{aiNote}</p>
+            )}
+
+            <div className="mt-4 rounded-2xl border-2 border-red-500 bg-white px-6 py-5">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                 <span>{product1.name}</span>
                 <span className="text-gray-500">+</span>
@@ -320,9 +389,7 @@ export default function PromoBundlingPage() {
               </div>
 
               <p className="mt-3 text-xs leading-relaxed text-gray-600">
-                Promo ini mungkin akan susah dijalankan jika margin terlalu
-                kecil. Pertimbangkan volume penjualan dan strategi upselling
-                agar bundling tetap menguntungkan.
+                {getBundlingInsight(profitPct)}
               </p>
 
               <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">
@@ -332,7 +399,9 @@ export default function PromoBundlingPage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">(Online Food)</p>
-                  <p className="font-semibold">{rupiah(onlineFood || 0)}</p>
+                  <p className="font-semibold">
+                    {rupiah(onlineFood || 0)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -342,3 +411,4 @@ export default function PromoBundlingPage() {
     </div>
   );
 }
+

@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import Paywall from "@/components/license/Paywall";
+import { useLicense } from "@/hooks/useLicense";
+import { MidtransPayButton } from "./_components/MidtransPayButton";
 
 type SupaUser = {
   email?: string;
@@ -12,111 +13,121 @@ type SupaUser = {
     nama?: string;
     full_name?: string;
     name?: string;
-    pro_until?: string;
   };
 };
 
 function formatExpiry(raw?: string | null): string {
   if (!raw) return "—";
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return raw;
+  if (Number.isNaN(d.getTime())) return raw || "—";
 
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yy = String(d.getFullYear()).slice(-2);
+
   return `${dd}-${mm}-${yy}`;
 }
 
+/* ============================================================
+   FIX: useLicenseView (compatible for ALL useLicense versions)
+   ============================================================ */
+function useLicenseView() {
+  const license = useLicense();
+
+  const loading =
+    (license as any)?.loading ??
+    (license as any)?.isLoading ??
+    false;
+
+  const isPro =
+    (license as any)?.is_pro === true ||
+    (license as any)?.plan_status === "pro" ||
+    (license as any)?.plan === "pro";
+
+  const rawProUntil =
+    (license as any)?.pro_until ||
+    (license as any)?.expired_at ||
+    null;
+
+  return {
+    loading,
+    isPro,
+    proUntilLabel: isPro ? formatExpiry(rawProUntil) : "—",
+  };
+}
+
+/* ============================================================ */
+
 export default function BillingPage() {
   const [displayName, setDisplayName] = useState<string>("User");
-  const [expiryLabel, setExpiryLabel] = useState<string>("—");
+  const { loading, isPro, proUntilLabel } = useLicenseView();
 
   useEffect(() => {
     const supabase = createClientComponentClient();
-    supabase.auth
-      .getUser()
-      .then(({ data }) => {
-        const user = data.user as SupaUser | null;
-        if (!user) return;
 
-        const meta = user.user_metadata || {};
+    supabase.auth.getUser().then(({ data }) => {
+      const user = data.user as SupaUser | null;
+      if (!user) return;
 
-        // 🔥 Urutan baru – utamakan username / display_name / nama
-        const nameFromMeta =
-          meta.username ||
-          meta.display_name ||
-          meta.nama ||
-          meta.full_name ||
-          meta.name ||
-          undefined;
+      const meta = user.user_metadata || {};
 
-        setDisplayName(nameFromMeta || user.email || "User");
+      const nameFromMeta =
+        meta.username ||
+        meta.display_name ||
+        meta.nama ||
+        meta.full_name ||
+        meta.name ||
+        undefined;
 
-        if (meta.pro_until) {
-          setExpiryLabel(formatExpiry(meta.pro_until));
-        }
-      })
-      .catch(() => {
-        // fallback aja
-      });
+      setDisplayName(nameFromMeta || user.email || "User");
+    });
   }, []);
+
+  const statusLabel = loading ? "Checking..." : isPro ? "Pro" : "Free";
 
   return (
     <div className="min-h-full w-full px-4 py-4 md:px-8 md:py-6">
       <div className="mx-auto max-w-4xl space-y-6">
-        {/* Title */}
         <h1 className="text-2xl font-semibold text-gray-900">Membership</h1>
 
-        {/* Banner merah */}
+        {/* Banner */}
         <section className="rounded-3xl bg-gradient-to-r from-[#b91c1c] to-[#ef4444] p-6 text-white shadow-md md:p-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xl font-semibold md:text-2xl">
-                {displayName} <span className="font-normal">(Pro)</span>
+                {displayName} <span className="font-normal">({statusLabel})</span>
               </p>
               <p className="mt-1 text-sm opacity-90">
-                Active until {expiryLabel}
+                {loading
+                  ? "Mengecek status membership..."
+                  : isPro
+                  ? `Active until ${proUntilLabel}`
+                  : "Akun kamu masih Free plan. Upgrade ke PRO untuk membuka semua fitur."}
               </p>
             </div>
             <div className="rounded-full bg-white/10 px-4 py-2 text-xs font-medium tracking-wide">
-              FortisApp Pro
+              {isPro ? "FortisApp Pro" : "FortisApp Free"}
             </div>
           </div>
         </section>
 
-        {/* Perpanjang Membership */}
+        {/* Paket PRO */}
         <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Perpanjang Membership
           </h2>
 
-          <div className="space-y-4 md:max-w-md">
-            <select className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:ring-2 focus:ring-[#b91c1c]">
-              <option value="3">3 Bulan (Rp 149.000)</option>
-              <option value="6">6 Bulan (Rp 249.000)</option>
-              <option value="12">12 Bulan (Rp 499.000)</option>
-            </select>
+          <p className="mb-4 text-xs text-gray-500 md:text-sm">
+            Pembayaran menggunakan Midtrans Snap. Setelah transaksi sukses,
+            status PRO akan otomatis diaktifkan melalui webhook.
+          </p>
 
-            <button
-              type="button"
-              className="w-full rounded-2xl bg-[#b91c1c] px-4 py-3 text-sm font-semibold text-white shadow hover:bg-[#991b1b] focus:outline-none focus:ring-2 focus:ring-[#b91c1c]"
-              onClick={() => {
-                // klik tombol checkout di Paywall
-                const hiddenButton = document.querySelector<HTMLButtonElement>(
-                  "[data-fortis-billing='checkout']"
-                );
-                hiddenButton?.click();
-              }}
-            >
-              Perpanjang
-            </button>
+          <div className="grid gap-4 md:grid-cols-3">
+            <MidtransPayButton packageId="fortisapp-pro-3bulan" />
+            <MidtransPayButton packageId="fortisapp-pro-6bulan" />
+            <MidtransPayButton packageId="fortisapp-pro-12bulan" />
           </div>
         </section>
-
-        {/* Paywall lama disimpan buat logic backend / Mayar */}
-        <div className="hidden">
-          <Paywall />
-        </div>
       </div>
     </div>
   );

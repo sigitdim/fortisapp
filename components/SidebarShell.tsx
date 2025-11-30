@@ -21,17 +21,18 @@ const NAV = [
   { href: "/promo/tebus", label: "Kalkulator Tebus Murah", icon: "tag" },
 
   { href: "/inventory", label: "Inventory", icon: "boxes" },
-  { href: "/fortis-insight", label: "Fortis Insight", icon: "book" },
+  { href: "/fortis-insight", label: "Fortis Insight", icon: "insight" },
   { href: "/setup/bahan", label: "Setup", icon: "settings" },
   { href: "/tutorial", label: "Tutorial", icon: "edu" },
 ];
 
-/* ================= ICON SET ================= */
+/* ================= ICON SET (SEMUA INLINE) ================= */
 
 function Icon({ name }: { name: string }) {
   const cls = "h-5 w-5";
-  const s = {
+  const base = {
     className: cls,
+    viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
     strokeWidth: 1.7,
@@ -40,48 +41,95 @@ function Icon({ name }: { name: string }) {
   };
 
   switch (name) {
+    /* === DASHBOARD === */
     case "grid":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <rect x="4" y="4" width="6" height="6" rx="1.5" />
-          <rect x="14" y="4" width="6" height="6" rx="1.5" />
-          <rect x="4" y="14" width="6" height="6" rx="1.5" />
-          <rect x="14" y="14" width="6" height="6" rx="1.5" />
+        <svg {...base}>
+          <rect x="3" y="3" width="7" height="7" rx="2" />
+          <rect x="14" y="3" width="7" height="7" rx="2" />
+          <rect x="3" y="14" width="7" height="7" rx="2" />
+          <rect x="14" y="14" width="7" height="7" rx="2" />
         </svg>
       );
+
+    /* === KALKULATOR HPP === */
     case "calc":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
+        <svg {...base}>
           <rect x="5" y="3" width="14" height="18" rx="2" />
           <path d="M8 7h8" />
-          <path d="M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01" />
+          <path d="M9 12h.01M12 12h.01M15 12h.01" />
+          <path d="M9 16h.01M12 16h.01M15 16h.01" />
         </svg>
       );
+
+    /* === DAFTAR MENU === */
     case "book":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <path d="M6.5 4H18a2 2 0 0 1 2 2v14H7a3 3 0 0 1-3-3V6.5A2.5 2.5 0 0 1 6.5 4Z" />
-          <path d="M8 4v13" />
+        <svg {...base}>
+          <path d="M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z" />
+          <path d="M8 4v16" />
         </svg>
       );
+
+    /* === INVENTORY === */
+    case "boxes":
+      return (
+        <svg {...base}>
+          <path d="M3 7.5L12 3l9 4.5-9 4.5-9-4.5Z" />
+          <path d="M3 7.5v9L12 21l9-4.5v-9" />
+        </svg>
+      );
+
+    /* === SETUP === */
+    case "settings":
+      return (
+        <svg {...base}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a2 2 0 0 0 .4 2l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a2 2 0 0 0-2-.4 2 2 0 0 0-1.3 1.8V21a2 2 0 1 1-4 0v-.1a2 2 0 0 0-1.3-1.8 2 2 0 0 0-2 .4l-.1.1A2 2 0 1 1 4.1 17l.1-.1a2 2 0 0 0 .4-2 2 2 0 0 0-1.8-1.3H3a2 2 0 1 1 0-4h.1a2 2 0 0 0 1.8-1.3 2 2 0 0 0-.4-2l-.1-.1A2 2 0 1 1 6.3 4.1l.1.1a2 2 0 0 0 2 .4A2 2 0 0 0 9.7 3V3a2 2 0 1 1 4 0v.1a2 2 0 0 0 1.3 1.8 2 2 0 0 0 2-.4l.1-.1A2 2 0 1 1 20 6.3l-.1.1a2 2 0 0 0-.4 2c.2.5.7.9 1.2 1H21a2 2 0 1 1 0 4h-.1a2 2 0 0 0-1.5 1.6Z" />
+        </svg>
+      );
+
+    /* === TUTORIAL === */
+    case "edu":
+      return (
+        <svg {...base}>
+          <path d="M3 10L12 5l9 5-9 5-9-5Z" />
+          <path d="M6 12v5c0 .7 3.5 2.5 6 3 2.5-.5 6-2.3 6-3v-5" />
+        </svg>
+      );
+
+    /* === FORTIS INSIGHT (FIGMA-STYLE) === */
+    case "insight":
+      return (
+        <svg {...base}>
+          <rect x="3" y="4" width="18" height="14" rx="2" />
+          <path d="M10 10v4l3-2-3-2Z" />
+          <path d="M7 19h10" />
+        </svg>
+      );
+
+    /* === PROMO ICONS === */
     case "percent":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
+        <svg {...base}>
           <path d="M19 5L5 19" />
           <circle cx="8" cy="8" r="2.2" />
           <circle cx="16" cy="16" r="2.2" />
         </svg>
       );
+
     case "box":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z" />
-          <path d="M3 7.5v9L12 21l9-4.5v-9" />
+        <svg {...base}>
+        <path d="M3 7.5L12 3l9 4.5-9 4.5-9-4.5Z" />
+        <path d="M3 7.5v9L12 21l9-4.5v-9" />
         </svg>
       );
+
     case "gift":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
+        <svg {...base}>
           <rect x="3" y="9" width="18" height="4" rx="1" />
           <path d="M5 13v7h14v-7" />
           <path d="M12 6v14" />
@@ -89,34 +137,15 @@ function Icon({ name }: { name: string }) {
           <path d="M12 6s2.5-3 4.5-2S15 8 12 8" />
         </svg>
       );
+
     case "tag":
       return (
-        <svg viewBox="0 0 24 24" {...s}>
+        <svg {...base}>
           <path d="M7 4h6l7 7-6 6-7-7V4Z" />
           <circle cx="9" cy="8" r="1.2" />
         </svg>
       );
-    case "boxes":
-      return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z" />
-          <path d="M3 7.5v9L12 21l9-4.5v-9" />
-        </svg>
-      );
-    case "settings":
-      return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.9 1.9 0 0 0 .38 2.1l.03.03a1.8 1.8 0 1 1-2.54 2.54l-.03-.03a1.9 1.9 0 0 0-2.1-.38 1.9 1.9 0 0 0-1.1 1.73V21a1.8 1.8 0 1 1-3.6 0v-.01A1.9 1.9 0 0 0 9.3 19c-.34-.15-.73-.2-1.1-.1a1.9 1.9 0 0 0-1 .55l-.03.03a1.8 1.8 0 1 1-2.54-2.54l.03-.03A1.9 1.9 0 0 0 5 15.4a1.9 1.9 0 0 0-1.73-1.1H3a1.8 1.8 0 0 1 0-3.6h.01A1.9 1.9 0 0 0 4.7 9.3c.15-.34.2-.73.1-1.1a1.9 1.9 0 0 0-.55-1L4.22 7.2a1.8 1.8 0 0 1 2.54-2.54l.03.03A1.9 1.9 0 0 0 9.4 5c.34.15.73.2 1.1.1A1.9 1.9 0 0 0 11.6 3.5V3a1.8 1.8 0 0 1 3.6 0v.01a1.9 1.9 0 0 0 1.1 1.59c.34.15.73.2 1.1.1a1.9 1.9 0 0 0 1-.55l.03-.03a1.8 1.8 0 1 1 2.54 2.54l-.03.03A1.9 1.9 0 0 0 19.5 9.3c-.15.34-.2.73-.1 1.1a1.9 1.9 0 0 0 1.59 1.1H21a1.8 1.8 0 0 1 0 3.6h-.01A1.9 1.9 0 0 0 19.4 15Z" />
-        </svg>
-      );
-    case "edu":
-      return (
-        <svg viewBox="0 0 24 24" {...s}>
-          <path d="M3 10 12 5l9 5-9 5-9-5Z" />
-          <path d="M6 12v5c0 .7 3.5 2.5 6 3 2.5-.5 6-2.3 6-3v-5" />
-        </svg>
-      );
+
     default:
       return <span className={cls} />;
   }
@@ -134,7 +163,7 @@ function isNavActive(pathname: string | null, href: string) {
 }
 
 function formatExpiry(raw?: string | null) {
-  if (!raw) return "27-03-26";
+  if (!raw) return "—";
   const d = new Date(raw);
   if (isNaN(d.getTime())) return raw;
   const dd = String(d.getDate()).padStart(2, "0");
@@ -145,16 +174,20 @@ function formatExpiry(raw?: string | null) {
 
 /* ================= MAIN SHELL ================= */
 
-export default function SidebarShell({ children }: { children: React.ReactNode }) {
+export default function SidebarShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
-  const { expiresAt } = useLicense();
+  const { expiresAt, isActive, loading } = useLicense();
 
   const [openDesktop, setOpenDesktop] = useState(true);
   const [openMobile, setOpenMobile] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
 
   const [displayName, setDisplayName] = useState("User");
-  const [expiryLabel, setExpiryLabel] = useState("27-03-26");
+  const [expiryLabel, setExpiryLabel] = useState("—");
 
   // detect desktop / mobile
   useEffect(() => {
@@ -199,7 +232,11 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
 
   // expiry dari license hook
   useEffect(() => {
-    if (expiresAt) setExpiryLabel(formatExpiry(expiresAt));
+    if (expiresAt) {
+      setExpiryLabel(formatExpiry(expiresAt));
+    } else {
+      setExpiryLabel("—");
+    }
   }, [expiresAt]);
 
   const isCollapsedDesktop = isDesktop && !openDesktop;
@@ -338,38 +375,82 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
             )}
           </nav>
 
-          {/* PRO badge */}
+          {/* PRO / MEMBERSHIP BADGE */}
           {isCollapsedDesktop ? (
             <div className="mt-3 flex justify-center pb-1">
-              <Link
-                href="/billing"
-                onClick={() => {
-                  if (!isDesktop) setOpenMobile(false);
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white shadow-md hover:bg-red-700 active:scale-95 transition-transform"
-              >
-                PRO
-              </Link>
+              {loading ? (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-[9px] font-bold text-gray-400 animate-pulse">
+                  ...
+                </div>
+              ) : isActive ? (
+                <Link
+                  href="/billing"
+                  onClick={() => {
+                    if (!isDesktop) setOpenMobile(false);
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white shadow-md hover:bg-red-700 active:scale-95 transition-transform"
+                >
+                  PRO
+                </Link>
+              ) : (
+                <Link
+                  href="/billing"
+                  onClick={() => {
+                    if (!isDesktop) setOpenMobile(false);
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-300 text-[9px] font-bold text-gray-800 shadow-md hover:bg-gray-400 active:scale-95 transition-transform"
+                >
+                  !
+                </Link>
+              )}
             </div>
           ) : (
             <div className="mt-3">
-              <Link
-                href="/billing"
-                onClick={() => {
-                  if (!isDesktop) setOpenMobile(false);
-                }}
-                className="flex items-center gap-3 rounded-2xl bg-red-600 px-3 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-red-700 active:scale-[0.98]"
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px]">
-                  PRO
-                </div>
-                <div className="leading-tight">
-                  <div className="truncate">{displayName} | Pro</div>
-                  <div className="text-[9px] font-normal opacity-90">
-                    Active until {expiryLabel}
+              {loading ? (
+                <div className="flex items-center gap-3 rounded-2xl bg-gray-100 px-3 py-2.5 text-xs text-gray-500 shadow-sm animate-pulse">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-200" />
+                  <div className="flex-1 space-y-1">
+                    <div className="h-3 w-24 rounded bg-gray-200" />
+                    <div className="h-2 w-32 rounded bg-gray-200" />
                   </div>
                 </div>
-              </Link>
+              ) : isActive ? (
+                <Link
+                  href="/billing"
+                  onClick={() => {
+                    if (!isDesktop) setOpenMobile(false);
+                  }}
+                  className="flex items-center gap-3 rounded-2xl bg-red-600 px-3 py-2.5 text-xs font-semibold text-white shadow-md transition hover:bg-red-700 active:scale-[0.98]"
+                >
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px]">
+                    PRO
+                  </div>
+                  <div className="leading-tight">
+                    <div className="truncate">{displayName} | Pro</div>
+                    <div className="text-[9px] font-normal opacity-90">
+                      Active until {expiryLabel}
+                    </div>
+                  </div>
+                </Link>
+              ) : (
+                <Link
+                  href="/billing"
+                  onClick={() => {
+                    if (!isDesktop) setOpenMobile(false);
+                  }}
+                  className="flex items-center gap-3 rounded-2xl bg-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-800 shadow-md transition hover:bg-gray-300 active:scale-[0.98]"
+                >
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-300 text-[10px]">
+                    !
+                  </div>
+                  <div className="leading-tight">
+                    <div className="truncate">{displayName}</div>
+                    <div className="text-[9px] font-normal text-red-700">
+                      Membership tidak aktif – klik untuk perpanjang
+                    </div>
+                  </div>
+                </Link>
+              )}
             </div>
           )}
         </div>
@@ -383,7 +464,7 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
         />
       )}
 
-      {/* ===== MAIN CONTENT ===== */}
+      {/* ===== MAIN CONTENT (TANPA BLOKIR MEMBERSHIP) ===== */}
       <main className={["transition-[padding]", mainPadding].join(" ")}>
         <div className="w-full px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
           {children}
@@ -392,4 +473,3 @@ export default function SidebarShell({ children }: { children: React.ReactNode }
     </div>
   );
 }
-

@@ -6,6 +6,7 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import OwnerProvider from "@/components/OwnerProvider";
 import SidebarShell from "@/components/SidebarShell";
 import { MoreVertical } from "lucide-react";
+import { useLicense } from "@/hooks/useLicense";
 
 /* ========= HeaderActions (menu kanan atas) ========= */
 function HeaderActions() {
@@ -19,10 +20,11 @@ function HeaderActions() {
     (async () => {
       const { data } = await supabase.auth.getUser();
       const nm =
-        data?.user?.user_metadata?.full_name ||
+        (data?.user?.user_metadata as any)?.full_name ||
         (data?.user as any)?.raw_user_meta_data?.full_name ||
         data?.user?.email ||
         "Guest";
+
       setLabel((nm || "Guest").split("@")[0]);
     })();
   }, [supabase]);
@@ -57,7 +59,7 @@ function HeaderActions() {
       await supabase.auth.signOut();
       window.location.href = "/login";
     } catch {
-      // boleh kosong
+      // ignore
     }
   }
 
@@ -66,14 +68,14 @@ function HeaderActions() {
       <button
         onClick={() => setOpen((p) => !p)}
         aria-label="Menu Akun"
-        className="w-9 h-9 rounded-full border flex items-center justify-center bg-white hover:bg-zinc-100"
+        className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-neutral-200 hover:bg-neutral-50"
       >
-        <MoreVertical className="w-5 h-5 text-neutral-700" />
+        <MoreVertical className="h-5 w-5 text-neutral-700" />
       </button>
 
       {open && (
         <div
-          className="absolute right-0 top-10 z-50 bg-white border rounded-xl shadow-md px-4 py-3 space-y-2"
+          className="absolute right-0 top-10 z-50 space-y-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-lg"
           onMouseEnter={() => {
             if (timerRef.current) window.clearTimeout(timerRef.current);
           }}
@@ -84,7 +86,7 @@ function HeaderActions() {
           <span className="text-sm text-gray-700">{label}</span>
           <button
             onClick={signOut}
-            className="px-3 py-1.5 rounded-lg border hover:bg-red-50 hover:border-red-400 text-sm text-red-600"
+            className="rounded-lg border px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
           >
             Keluar
           </button>
@@ -94,21 +96,103 @@ function HeaderActions() {
   );
 }
 
-/* ========= Layout Global (membungkus semua halaman) ========= */
+/* ========= AUTH GUARD (kalau belum login → /login) ========= */
+function AuthGuard({ children }: { children: ReactNode }) {
+  const supabase = createClientComponentClient();
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+
+      if (!data.user) {
+        window.location.href = "/login";
+        return;
+      }
+
+      setChecked(true);
+    })();
+  }, [supabase]);
+
+  if (!checked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-neutral-50 to-neutral-100">
+        <div className="rounded-3xl bg-white px-6 py-5 text-sm text-gray-500 shadow-sm">
+          Mengarahkan ke halaman login...
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/* ========= LICENSE GUARD (cek membership aktif) ========= */
+function LicenseGuard({ children }: { children: ReactNode }) {
+  const { loading, isActive } = useLicense();
+
+  const pathname =
+    typeof window !== "undefined" ? window.location.pathname : "/";
+  const isBillingPage = pathname.startsWith("/billing");
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-neutral-50 to-neutral-100">
+        <div className="rounded-3xl bg-white px-6 py-5 text-sm text-gray-500 shadow-sm">
+          Mengecek status membership...
+        </div>
+      </div>
+    );
+  }
+
+  // Halaman Billing → selalu boleh
+  if (isBillingPage) return <>{children}</>;
+
+  if (!isActive) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-gradient-to-br from-neutral-50 to-neutral-100">
+        <div className="max-w-md rounded-3xl bg-white px-6 py-6 text-center shadow-sm">
+          <div className="mb-2 text-base font-semibold text-gray-900">
+            Membership tidak aktif
+          </div>
+          <p className="mb-4 text-xs text-gray-500">
+            Untuk melanjutkan menggunakan semua fitur FortisApp, silakan
+            perpanjang membership Pro Anda terlebih dahulu.
+          </p>
+          <a
+            href="/billing?expired=1"
+            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+          >
+            Buka Halaman Billing
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/* ========= Layout Global (pembungkus semua halaman) ========= */
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <OwnerProvider>
-      <SidebarShell>
-        {/* tombol akun kanan atas */}
-        <div className="fixed top-4 right-4 z-50">
-          <HeaderActions />
-        </div>
+      <AuthGuard>
+        <SidebarShell>
+          {/* tombol akun kanan atas */}
+          <div className="fixed right-4 top-4 z-50">
+            <HeaderActions />
+          </div>
 
-        {/* konten halaman */}
-        <Suspense fallback={<div className="p-4">Loading...</div>}>
-          <div className="p-4">{children}</div>
-        </Suspense>
-      </SidebarShell>
+          {/* proteksi membership */}
+          <LicenseGuard>
+            <Suspense fallback={<div className="p-4">Loading...</div>}>
+              {children}
+            </Suspense>
+          </LicenseGuard>
+        </SidebarShell>
+      </AuthGuard>
     </OwnerProvider>
   );
 }
+

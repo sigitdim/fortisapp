@@ -8,6 +8,34 @@ import {
   type Product,
 } from "../_hooks/useProdukList";
 
+/* ========= icon kecil kaca pembesar (mirip PNG) ========= */
+
+const SearchIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={className}
+  >
+    <circle
+      cx="11"
+      cy="11"
+      r="6"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      fill="none"
+    />
+    <line
+      x1="15"
+      y1="15"
+      x2="20"
+      y2="20"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 /* ========= utils ========= */
 
 function parseNumberFromCurrency(input: string): number {
@@ -52,6 +80,45 @@ function normalizeMoney(value: number | null | undefined): number {
     if (candidate < 500_000) return candidate;
   }
   return v;
+}
+
+/* ========= AI copy buat penjelasan promo ========= */
+
+function getPromoInsight(profitPct: number): string {
+  if (!Number.isFinite(profitPct)) profitPct = 0;
+
+  if (profitPct < 5) {
+    return (
+      "Promo ini terlalu agresif. Margin hampir habis, sebaiknya dipakai " +
+      "hanya untuk momen tertentu (launching / cuci gudang) dan dibatasi kuotanya."
+    );
+  }
+
+  if (profitPct < 15) {
+    return (
+      "Profit sangat tipis. Batasi durasi promo, pastikan volume penjualan benar-benar naik, " +
+      "dan gunakan promo ini lebih sebagai penarik traffic saja."
+    );
+  }
+
+  if (profitPct < 30) {
+    return (
+      "Promo masih aman tapi margin mulai menipis. Cocok untuk campaign jangka pendek " +
+      "atau dipaketkan dengan menu lain yang marginnya lebih tinggi."
+    );
+  }
+
+  if (profitPct < 50) {
+    return (
+      "Promo ini cukup sehat. Kamu masih punya ruang profit yang nyaman sambil tetap kompetitif di harga. " +
+      "Bisa dipakai sebagai promo rutin mingguan/bulanan."
+    );
+  }
+
+  return (
+    "Promo ini sangat sehat. Margin masih tebal walaupun sudah diberi diskon, " +
+    "kamu bisa lebih agresif di marketing (iklan, bundling, upsell) tanpa takut rugi."
+  );
 }
 
 /* ========= page ========= */
@@ -131,7 +198,7 @@ export default function PromoDiskonPage() {
           <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
             Kalkulator Promo - Diskon
           </h1>
-          <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
+        <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-600">
               {loading
                 ? "Memuat daftar menu..."
@@ -239,7 +306,7 @@ export default function PromoDiskonPage() {
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-[12px] bg-red-600 text-white shadow-sm"
               >
-                <span className="text-sm leading-none">🔍</span>
+                <SearchIcon className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -434,9 +501,7 @@ export default function PromoDiskonPage() {
               </div>
 
               <p className="mt-3 text-xs leading-relaxed text-gray-600">
-                Promo ini masih bisa digunakan, namun kamu perlu memperhatikan
-                kapasitas produksi, target penjualan, dan strategi marketing agar
-                margin tetap sehat.
+                {getPromoInsight(newProfitPct)}
               </p>
 
               <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">

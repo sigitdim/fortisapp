@@ -91,6 +91,7 @@ function makeRow(): Row {
 /* ========= component ========= */
 
 type Tier = "kompetitif" | "standar" | "premium";
+type ModeHarga = "manual" | "ai";
 
 export default function HppCalculator() {
   const [namaMenu, setNamaMenu] = useState("");
@@ -118,6 +119,9 @@ export default function HppCalculator() {
   const [aiHargaStandar, setAiHargaStandar] = useState<number | null>(null);
   const [aiHargaPremium, setAiHargaPremium] = useState<number | null>(null);
   const [selectedTier, setSelectedTier] = useState<Tier | null>("standar");
+
+  // mode harga: manual vs hasil AI
+  const [modeHarga, setModeHarga] = useState<ModeHarga>("manual");
 
   // checkbox pajak & fee channel
   const [includePajak, setIncludePajak] = useState(false);
@@ -306,6 +310,7 @@ export default function HppCalculator() {
     // default: pilih standar (sesuai Figma)
     setSelectedTier("standar");
     setTargetHarga(String(standar));
+    setModeHarga("ai");
 
     setNotice("Bantuan AI: rekomendasi harga sudah diisi.");
   }
@@ -326,6 +331,7 @@ export default function HppCalculator() {
 
     setSelectedTier(tier);
     setTargetHarga(String(price));
+    setModeHarga("ai");
   }
 
   /* ----- derived: rekomendasi harga + pajak + channel ----- */
@@ -347,7 +353,13 @@ export default function HppCalculator() {
   ]);
 
   // harga dasar (offline)
-  const dasarHarga = rekomendasiHarga > 0 ? rekomendasiHarga : 0;
+  const dasarHarga = useMemo(() => {
+    if (modeHarga === "ai") {
+      return rekomendasiHarga > 0 ? rekomendasiHarga : 0;
+    }
+    // kalau manual → pakai angka input user langsung
+    return targetHargaNumber > 0 ? targetHargaNumber : 0;
+  }, [modeHarga, rekomendasiHarga, targetHargaNumber]);
 
   // kalau pajak dicentang → +10%, kalau nggak → sama dengan harga dasar
   const hargaSetelahPajak =
@@ -371,63 +383,63 @@ export default function HppCalculator() {
 
   /* ----- save menu ----- */
 
-async function handleSimpanMenu() {
-  setErrorMsg(null);
+  async function handleSimpanMenu() {
+    setErrorMsg(null);
 
-  if (!namaMenu.trim()) {
-    setErrorMsg("Nama menu wajib diisi.");
-    return;
+    if (!namaMenu.trim()) {
+      setErrorMsg("Nama menu wajib diisi.");
+      return;
+    }
+
+    const itemsPayload = rows
+      .filter((r) => r.bahanId && r.qty > 0)
+      .map((r) => ({
+        bahan_id: r.bahanId,
+        qty: Number(r.qty) || 0,
+        unit: r.unit,
+      }));
+
+    if (itemsPayload.length === 0) {
+      setErrorMsg("Minimal isi satu bahan resep dengan Qty > 0.");
+      return;
+    }
+
+    // harga jual yang akan DISIMPAN ke /menu
+    if (!dasarHarga || dasarHarga <= 0) {
+      setErrorMsg(
+        "Isi target harga jual atau klik Bantuan AI dulu agar harga jual tidak 0."
+      );
+      return;
+    }
+
+    // ✅ payload FINAL, sesuai laporan BE (hanya pakai harga_jual)
+    const payload = {
+      nama_menu: namaMenu.trim(),
+      harga_jual: dasarHarga,
+      items: itemsPayload,
+    };
+
+    console.log("[HPP] POST /menu payload:", payload);
+
+    try {
+      setSaving(true);
+
+      await callApi("/menu", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      setNotice("Menu & HPP berhasil disimpan.");
+      window.location.href = "/menu";
+    } catch (e: any) {
+      console.error("Gagal menyimpan menu:", e);
+      setErrorMsg(
+        cleanErrorMessage(e?.message || "Gagal menyimpan menu. Coba lagi.")
+      );
+    } finally {
+      setSaving(false);
+    }
   }
-
-  const itemsPayload = rows
-    .filter((r) => r.bahanId && r.qty > 0)
-    .map((r) => ({
-      bahan_id: r.bahanId,
-      qty: Number(r.qty) || 0,
-      unit: r.unit,
-    }));
-
-  if (itemsPayload.length === 0) {
-    setErrorMsg("Minimal isi satu bahan resep dengan Qty > 0.");
-    return;
-  }
-
-  // harga jual yang akan DISIMPAN ke /menu
-  if (!dasarHarga || dasarHarga <= 0) {
-    setErrorMsg(
-      "Isi target harga jual atau klik Bantuan AI dulu agar harga jual tidak 0."
-    );
-    return;
-  }
-
-  // ✅ payload FINAL, sesuai laporan BE (hanya pakai harga_jual)
-  const payload = {
-    nama_menu: namaMenu.trim(),
-    harga_jual: dasarHarga,
-    items: itemsPayload,
-  };
-
-  console.log("[HPP] POST /menu payload:", payload);
-
-  try {
-    setSaving(true);
-
-    await callApi("/menu", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-
-    setNotice("Menu & HPP berhasil disimpan.");
-    window.location.href = "/menu";
-  } catch (e: any) {
-    console.error("Gagal menyimpan menu:", e);
-    setErrorMsg(
-      cleanErrorMessage(e?.message || "Gagal menyimpan menu. Coba lagi.")
-    );
-  } finally {
-    setSaving(false);
-  }
-}
 
   /* ========= render ========= */
 
@@ -465,16 +477,8 @@ async function handleSimpanMenu() {
         </div>
 
         <div className="px-5 pb-5 pt-4">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3">
             <h2 className="text-sm font-semibold text-gray-800">Nama Resep</h2>
-            <button
-              type="button"
-              onClick={handleAddRow}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Tambah</span>
-            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -558,7 +562,19 @@ async function handleSimpanMenu() {
             </table>
           </div>
 
-          {/* total di kanan bawah kartu resep, mirip Figma */}
+          {/* tombol Tambah di bawah tabel resep */}
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Tambah</span>
+            </button>
+          </div>
+
+          {/* total di kanan bawah kartu resep */}
           <div className="mt-4 flex justify-end">
             <div className="space-y-0.5 text-xs md:text-sm text-gray-700">
               <div className="flex justify-between gap-8">
@@ -607,7 +623,10 @@ async function handleSimpanMenu() {
                   type="number"
                   min={0}
                   value={targetHarga}
-                  onChange={(e) => setTargetHarga(e.target.value)}
+                  onChange={(e) => {
+                    setTargetHarga(e.target.value);
+                    setModeHarga("manual"); // kalau user ngetik → balik manual
+                  }}
                   placeholder="15000"
                   className="w-full border-none bg-transparent text-sm outline-none"
                 />
@@ -624,7 +643,7 @@ async function handleSimpanMenu() {
                 onClick={handleBantuanAi}
                 className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700 active:scale-[0.99]"
               >
-                <span>🤖 Bantuan AI</span>
+                <span>Bantuan AI</span>
               </button>
             </div>
 
@@ -734,7 +753,7 @@ async function handleSimpanMenu() {
                 </p>
               )}
 
-              {/* After tax & online – selalu tampil biar mirip Figma */}
+              {/* After tax & online */}
               {dasarHarga > 0 && (
                 <>
                   <p className="mt-3 text-xs text-gray-700">

@@ -67,7 +67,7 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/** Player khusus: YT di belakang, semua kontrol di depan (no share, no fullscreen, no drag seek) */
+/** Player khusus: YouTube di belakang, semua kontrol di overlay */
 function YoutubeCustomPlayer({ video }: { video: Video }) {
   const frameHostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<any>(null);
@@ -199,15 +199,15 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
   return (
     <div className="bg-white rounded-[28px] overflow-hidden shadow-2xl">
       <div className="relative w-full aspect-[16/9] bg-black">
-        {/* canvas player YouTube */}
+        {/* kanvas YouTube */}
         <div ref={frameHostRef} className="absolute inset-0 w-full h-full" />
 
-        {/* overlay full; semua klik kena ke sini, bukan ke iframe */}
+        {/* overlay full: semua klik kena ke overlay ini, bukan iframe */}
         <div className="absolute inset-0 pointer-events-auto">
-          {/* area kosong di atas, klik di sini gak ngapa-ngapain */}
+          {/* area kosong atas */}
           <div className="absolute inset-0" />
 
-          {/* kontrol di bawah */}
+          {/* kontrol bawah */}
           <div className="absolute inset-x-0 bottom-0 px-4 pb-3 pt-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
             {/* progress (view only) */}
             <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden mb-2">
@@ -220,7 +220,6 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-white">
               {/* kiri: back / play / forward + time */}
               <div className="flex items-center gap-2 sm:gap-3">
-                {/* back 10s */}
                 <button
                   type="button"
                   onClick={() => handleSeek(-10)}
@@ -229,7 +228,6 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
                   <RotateCcw className="w-4 h-4" />
                 </button>
 
-                {/* play / pause */}
                 <button
                   type="button"
                   onClick={handleTogglePlay}
@@ -242,7 +240,6 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
                   )}
                 </button>
 
-                {/* forward 10s */}
                 <button
                   type="button"
                   onClick={() => handleSeek(10)}
@@ -258,7 +255,6 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
 
               {/* kanan: mute + speed */}
               <div className="flex items-center justify-start sm:justify-end gap-3">
-                {/* mute */}
                 <button
                   type="button"
                   onClick={handleToggleMute}
@@ -271,7 +267,6 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
                   )}
                 </button>
 
-                {/* playback speed */}
                 <div className="flex items-center gap-1 bg-white/10 rounded-full px-2 py-1">
                   {AVAILABLE_RATES.map((rate) => (
                     <button
@@ -300,12 +295,25 @@ function YoutubeCustomPlayer({ video }: { video: Video }) {
 
 /* =========================== PAGE =========================== */
 
+type PlayerMode = "modal" | "mini" | null;
+
 const FortisInsightPage: React.FC = () => {
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
+  const [playerMode, setPlayerMode] = useState<PlayerMode>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_COUNT);
 
   const visibleVideos = VIDEOS.slice(0, visibleCount);
   const hasMore = visibleCount < VIDEOS.length;
+
+  const openVideo = (video: Video) => {
+    setActiveVideo(video);
+    setPlayerMode("modal");
+  };
+
+  const closeVideoCompletely = () => {
+    setPlayerMode(null);
+    setActiveVideo(null);
+  };
 
   return (
     <div className="px-4 py-4 lg:px-8 lg:py-6 max-w-7xl mx-auto">
@@ -329,7 +337,7 @@ const FortisInsightPage: React.FC = () => {
           >
             <button
               type="button"
-              onClick={() => setActiveVideo(video)}
+              onClick={() => openVideo(video)}
               className="relative w-full aspect-[16/9] group"
             >
               <img
@@ -377,21 +385,63 @@ const FortisInsightPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal player */}
-      {activeVideo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="relative w-full max-w-4xl">
-            <button
-              type="button"
-              onClick={() => setActiveVideo(null)}
-              className="absolute -top-10 right-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg hover:bg-white transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+      {/* PLAYER (modal / mini) */}
+      {activeVideo && playerMode && (
+        <>
+          {/* backdrop cuma kalau modal */}
+          {playerMode === "modal" && (
+            <div className="fixed inset-0 z-40 bg-black/70" />
+          )}
 
-            <YoutubeCustomPlayer video={activeVideo} />
+          {/* container player: posisi tergantung mode */}
+          <div
+            className={
+              playerMode === "modal"
+                ? "fixed inset-0 z-50 flex items-center justify-center px-4"
+                : "fixed bottom-4 right-4 z-50 w-[280px]"
+            }
+          >
+            <div
+              className={
+                playerMode === "modal"
+                  ? "relative w-full max-w-4xl"
+                  : "relative w-full cursor-pointer"
+              }
+              // klik mini → balik ke modal
+              onClick={() => {
+                if (playerMode === "mini") {
+                  setPlayerMode("modal");
+                }
+              }}
+            >
+              {/* Tombol close / minimize */}
+              {playerMode === "modal" ? (
+                // modal: X = MINIMIZE (video tetap jalan)
+                <button
+                  type="button"
+                  onClick={() => setPlayerMode("mini")}
+                  className="absolute -top-10 right-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg hover:bg-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              ) : (
+                // mini: X = CLOSE TOTAL
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeVideoCompletely();
+                  }}
+                  className="absolute -top-2 -right-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-slate-800 shadow-md hover:bg-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+
+              <YoutubeCustomPlayer video={activeVideo} />
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

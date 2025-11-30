@@ -8,11 +8,12 @@ const CHECKOUT_URL =
   "https://fortislab.mayar.link/fortisapp-membership";
 
 export default function Paywall() {
-  const { loading, isActive, expiresAt, error, verify } = useLicense();
+  const { loading, isActive, expiresAt, error } = useLicense();
   const [opening, setOpening] = React.useState(false);
 
   const onActivate = React.useCallback(() => {
     if (opening) return;
+
     setOpening(true);
     if (typeof window !== "undefined") {
       window.open(CHECKOUT_URL, "_blank");
@@ -67,12 +68,12 @@ export default function Paywall() {
             {opening ? "Membuka..." : "Aktifkan Pro"}
           </button>
         )}
-        <button
-          type="button"
-          onClick={verify}
-          className="rounded-2xl border px-4 py-2"
-          disabled={loading}
-        >
+<button
+  type="button"
+  onClick={onActivate}
+  className="rounded-2xl border px-4 py-2"
+  disabled={loading || opening}
+>
           {loading ? "Memuat..." : "Saya sudah bayar — Refresh status"}
         </button>
       </div>

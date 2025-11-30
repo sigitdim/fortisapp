@@ -28,7 +28,47 @@ function calcProfitPercent(cost: number, price: number) {
 }
 
 function formatPercent(pct: number) {
-  return `${Math.round(pct)}%`;
+  const clamped = Math.max(-100, Math.min(300, pct));
+  return `${Math.round(clamped)}%`;
+}
+
+/* ========= AI copy untuk B1G1 ========= */
+
+function getB1G1Insight(profitPct: number): string {
+  if (!Number.isFinite(profitPct)) profitPct = 0;
+
+  if (profitPct < 5) {
+    return (
+      "Promo Beli 1 Gratis 1 ini terlalu agresif. Margin hampir habis, sebaiknya hanya dipakai " +
+      "untuk momen tertentu (launching / cuci gudang) dan dibatasi kuotanya."
+    );
+  }
+
+  if (profitPct < 15) {
+    return (
+      "Profit per transaksi sangat tipis. Batasi periode promo atau buat minimal order, " +
+      "dan pastikan ada menu lain yang marginnya lebih tinggi untuk di-upsell."
+    );
+  }
+
+  if (profitPct < 30) {
+    return (
+      "Promo masih aman tapi margin mulai menipis. Cocok untuk narik traffic di jam sepi " +
+      "atau hari tertentu saja, bukan dipakai sepanjang waktu."
+    );
+  }
+
+  if (profitPct < 50) {
+    return (
+      "Promo Beli 1 Gratis 1 ini masih cukup sehat. Kamu tetap memberi nilai besar ke pelanggan " +
+      "sambil menjaga margin yang nyaman. Bisa dipakai sebagai campaign berkala."
+    );
+  }
+
+  return (
+    "Promo ini sangat sehat. Margin masih tebal walaupun sudah Beli 1 Gratis 1, " +
+    "kamu bisa lebih agresif di marketing (iklan, voucher, affiliate) tanpa takut rugi."
+  );
 }
 
 /* ========= page ========= */
@@ -40,8 +80,8 @@ export default function PromoB1G1Page() {
 
   const [menu1, setMenu1] = useState<string | null>(null);
   const [menu2, setMenu2] = useState<string | null>(null);
+  const [aiNote, setAiNote] = useState<string | null>(null);
 
-  // default pilihan (menu1 = item 0, menu2 = item 1 kalau ada)
   useEffect(() => {
     if (!list.length) return;
     if (!menu1) setMenu1(list[0].id);
@@ -69,12 +109,12 @@ export default function PromoB1G1Page() {
 
   if (!product1 || !product2) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+      <div className="p-6 md:p-8">
         <div className="mx-auto max-w-6xl">
-          <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
             Kalkulator Promo - Buy 1 Get 1
           </h1>
-          <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
+          <div className="mt-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-600">
               {loading
                 ? "Memuat daftar menu..."
@@ -86,49 +126,70 @@ export default function PromoB1G1Page() {
     );
   }
 
-  // ====== LOGIC B1G1 (tetap seperti versi lama) ======
+  const cost1 = (product1.hpp ?? 0) + (product1.overhead ?? 0);
+  const cost2 = (product2.hpp ?? 0) + (product2.overhead ?? 0);
+
   const paidPrice = product1.hargaJual;
-  const totalCost =
-    product1.hpp +
-    product1.overhead +
-    product2.hpp +
-    product2.overhead;
+  const totalCost = cost1 + cost2;
   const profitPct = calcProfitPercent(totalCost, paidPrice);
 
   const afterTax = Math.round(paidPrice * 1.1);
   const onlineFood = Math.round(paidPrice * 1.15);
 
-  const profitMenu1 = calcProfitPercent(
-    product1.hpp + product1.overhead,
-    product1.hargaJual
-  );
-  const profitMenu2 = calcProfitPercent(
-    product2.hpp + product2.overhead,
-    product2.hargaJual
-  );
+  const profitMenu1 = calcProfitPercent(cost1, product1.hargaJual);
+  const profitMenu2 = calcProfitPercent(cost2, product2.hargaJual);
 
-  // list untuk dropdown kedua: jangan tampilkan menu yang sama
   const optionsMenu2 = list.filter((p) => p.id !== (menu1 ?? ""));
 
+  /* ====== Bantuan AI B1G1 ====== */
+  const handleAiClick = () => {
+    if (!product1 || !product2) return;
+
+    let paid = product1;
+    let free = product2;
+
+    if ((product2.hargaJual ?? 0) > (product1.hargaJual ?? 0)) {
+      paid = product2;
+      free = product1;
+      setMenu1(product2.id);
+      setMenu2(product1.id);
+    } else {
+      setMenu1(product1.id);
+      setMenu2(product2.id);
+    }
+
+    const paidCost =
+      (paid.hpp ?? 0) + (paid.overhead ?? 0) + (free.hpp ?? 0) + (free.overhead ?? 0);
+    const paidProfitPct = calcProfitPercent(paidCost, paid.hargaJual ?? 0);
+
+    setAiNote(
+      `AI menyarankan menjadikan ${paid.name} sebagai menu bayar dan ${free.name} sebagai menu gratis. ` +
+        `Perkiraan profit promo sekitar ${formatPercent(
+          paidProfitPct
+        )} per transaksi (sebelum pajak & biaya platform).`
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+    <div className="p-6 md:p-8">
       <div className="mx-auto max-w-6xl">
-        {/* TITLE */}
-        <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
           Kalkulator Promo - Buy 1 Get 1
         </h1>
 
-        <section className="mt-6 rounded-[28px] bg-white px-6 py-5 shadow-sm">
-          {/* ========= TOP ROW: PILIH MENU 1 & 2 + AI ========= */}
+        <section className="mt-2 rounded-2xl border border-gray-200 bg-white px-6 py-5 shadow-sm">
+          {/* PILIH MENU + AI */}
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-            {/* MENU 1 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
-                Pilih Menu 1
+                Pilih Menu 1 (yang Dibayar)
               </p>
               <select
                 value={menu1 ?? ""}
-                onChange={(e) => setMenu1(e.target.value)}
+                onChange={(e) => {
+                  setMenu1(e.target.value);
+                  setAiNote(null);
+                }}
                 className="mt-2 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               >
                 {list.map((p) => (
@@ -139,14 +200,16 @@ export default function PromoB1G1Page() {
               </select>
             </div>
 
-            {/* MENU 2 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
-                Pilih Menu 2
+                Pilih Menu 2 (Gratis)
               </p>
               <select
                 value={menu2 ?? ""}
-                onChange={(e) => setMenu2(e.target.value)}
+                onChange={(e) => {
+                  setMenu2(e.target.value);
+                  setAiNote(null);
+                }}
                 className="mt-2 h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm text-gray-900 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
               >
                 {optionsMenu2.length > 0
@@ -163,24 +226,25 @@ export default function PromoB1G1Page() {
               </select>
             </div>
 
-            {/* BANTUAN AI */}
-            <div className="flex items-end justify-start md:justify-end">
+            <div className="flex flex-col items-start justify-end md:items-end">
               <button
                 type="button"
-                onClick={() =>
-                  alert("Bantuan AI untuk B1G1 akan segera tersedia.")
-                }
+                onClick={handleAiClick}
                 className="mt-4 h-11 rounded-full bg-red-600 px-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
               >
-                Bantuan AI ➜
+                BANTUAN AI ➜
               </button>
+              {aiNote && (
+                <p className="mt-2 max-w-xs text-[11px] text-gray-500 md:text-right">
+                  {aiNote}
+                </p>
+              )}
             </div>
           </div>
 
-          {/* ========= 2 KARTU MENU ========= */}
+          {/* DUA KARTU MENU */}
           <div className="mt-6 grid gap-6 md:grid-cols-2">
-            {/* Kartu Menu 1 */}
-            <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-5">
+            <div className="rounded-2xl border border-gray-200 bg-white px-6 py-5">
               <div className="flex items-baseline justify-between gap-2">
                 <h3 className="text-lg font-semibold text-gray-900">
                   {product1.name}
@@ -214,8 +278,7 @@ export default function PromoB1G1Page() {
               </div>
             </div>
 
-            {/* Kartu Menu 2 */}
-            <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-5">
+            <div className="rounded-2xl border border-gray-200 bg-white px-6 py-5">
               <div className="flex items-baseline justify-between gap-2">
                 <h3 className="text-lg font-semibold text-gray-900">
                   {product2.name}
@@ -250,12 +313,12 @@ export default function PromoB1G1Page() {
             </div>
           </div>
 
-          {/* ========= HASIL PROMO B1G1 ========= */}
-          <div className="mt-6 rounded-[28px] border-2 border-red-500 bg-white px-6 py-5">
+          {/* HASIL B1G1 */}
+          <div className="mt-6 rounded-2xl border-2 border-red-500 bg-white px-6 py-5">
             <p className="text-sm font-semibold text-gray-900">
               {product1.name} <span className="text-gray-500">+</span>{" "}
               {product2.name}{" "}
-              <span className="text-gray-500">(Free)</span>
+              <span className="text-gray-500">(Gratis)</span>
             </p>
             <p className="mt-2 text-2xl font-semibold text-gray-900">
               {rupiah(paidPrice)}
@@ -272,9 +335,7 @@ export default function PromoB1G1Page() {
             </div>
 
             <p className="mt-3 text-xs leading-relaxed text-gray-600">
-              Promo ini mungkin akan susah dijalankan bila margin terlalu
-              tipis. Pertimbangkan untuk membatasi periode promo atau
-              minimal order agar tetap menguntungkan.
+              {getB1G1Insight(profitPct)}
             </p>
 
             <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">

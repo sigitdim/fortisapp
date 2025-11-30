@@ -1,89 +1,151 @@
-// hooks/useLicense.ts
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useEffect, useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+
+export type PlanStatus = "pro" | "free" | "pending" | string | null;
 
 export type LicenseState = {
   loading: boolean;
-  plan: "pro" | "free" | null;
   isActive: boolean;
-  expiresAt?: string | null;
-  error?: string | null;
+  planStatus: PlanStatus;
+  expiresAt: string | null;
+  profile: any | null;
+  error: string | null;
 };
 
-export function useLicense() {
-  const [state, setState] = useState<LicenseState>({
-    loading: true,
-    plan: null,
-    isActive: false,
-    expiresAt: null,
-    error: null,
+const DEFAULT_STATE: LicenseState = {
+  loading: true,
+  isActive: false,
+  planStatus: "free",
+  expiresAt: null,
+  profile: null,
+  error: null,
+};
+
+/**
+ * Cache in-memory + localStorage
+ */
+let memoryCache: LicenseState | null = null;
+
+export function useLicense(): LicenseState {
+  const [state, setState] = useState<LicenseState>(() => {
+    // 1. kalau ada cache di memory, pakai itu
+    if (memoryCache) {
+      return { ...memoryCache, loading: false };
+    }
+
+    // 2. kalau ada cache di localStorage, pakai
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.localStorage.getItem("fortis_license_cache");
+        if (saved) {
+          const parsed = JSON.parse(saved) as LicenseState;
+          memoryCache = parsed;
+          return { ...parsed, loading: false };
+        }
+      } catch {
+        // abaikan error parse
+      }
+    }
+
+    // 3. default → belum tahu apa-apa
+    return DEFAULT_STATE;
   });
 
-  const verify = useCallback(async () => {
-    try {
-      setState((s) => ({ ...s, loading: true, error: null }));
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      const user = userData?.user;
-      if (!user?.id) throw new Error("User not found. Please login again.");
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClientComponentClient();
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/license/verify`,
-        {
-          headers: { "x-owner-id": user.id },
-          cache: "no-store",
-        }
-      );
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Verify failed (${res.status}): ${text}`);
+    async function load() {
+      // kalau belum ada cache sama sekali, baru set loading true
+      if (!memoryCache) {
+        setState((prev) => ({ ...prev, loading: true }));
       }
 
-      const json = await res.json();
-      const isActive = !!json?.isActive;
-      const expiresAt = json?.expiresAt || null;
+      // === 1. Ambil user Supabase ===
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      setState({
+      if (!user) {
+        const next: LicenseState = {
+          loading: false,
+          isActive: false,
+          planStatus: "free",
+          expiresAt: null,
+          profile: null,
+          error: "NO_USER",
+        };
+        memoryCache = next;
+        if (typeof window !== "undefined") {
+          localStorage.setItem("fortis_license_cache", JSON.stringify(next));
+        }
+        if (!cancelled) setState(next);
+        return;
+      }
+
+      // === 2. Ambil row profiles berdasarkan user_id ===
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("plan_status,is_pro,pro_until,user_id,customer_email")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error || !data) {
+        const next: LicenseState = {
+          loading: false,
+          isActive: false,
+          planStatus: "free",
+          expiresAt: null,
+          profile: null,
+          error: error?.message || "PROFILES_ERROR",
+        };
+        memoryCache = next;
+        if (typeof window !== "undefined") {
+          localStorage.setItem("fortis_license_cache", JSON.stringify(next));
+        }
+        if (!cancelled) setState(next);
+        return;
+      }
+
+      // === 3. Hitung status PRO ===
+      const planStatus = (data.plan_status ?? "free") as PlanStatus;
+      const expiresAt = (data.pro_until as string | null) ?? null;
+
+      const isActive =
+        planStatus === "pro" ||
+        data.is_pro === true ||
+        (expiresAt !== null && new Date(expiresAt) > new Date());
+
+      const next: LicenseState = {
         loading: false,
-        plan: isActive ? "pro" : "free",
         isActive,
+        planStatus,
         expiresAt,
+        profile: data,
         error: null,
-      });
-    } catch (e: any) {
-      setState({
-        loading: false,
-        plan: "free",
-        isActive: false,
-        expiresAt: null,
-        error: e?.message || "Unknown error",
-      });
+      };
+
+      // simpan ke cache
+      memoryCache = next;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("fortis_license_cache", JSON.stringify(next));
+      }
+      if (!cancelled) setState(next);
     }
-  }, []);
 
-  useEffect(() => {
-    verify();
-
-    // Auto re-verify saat tab balik fokus (habis checkout Mayar)
-    const onVis = () => {
-      if (document.visibilityState === "visible") verify();
-    };
-    document.addEventListener("visibilitychange", onVis);
-
-    // Re-verify saat status auth berubah
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      verify();
-    });
+    load();
 
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      sub?.subscription?.unsubscribe?.();
+      cancelled = true;
     };
-  }, [verify]);
+  }, []);
 
-  const value = useMemo(() => ({ ...state, verify }), [state, verify]);
-  return value;
+  return state;
 }
+
+// BIAR KEDUA CARA IMPORT JALAN:
+// import { useLicense } from "@/hooks/useLicense";
+// import useLicense from "@/hooks/useLicense";
+export default useLicense;

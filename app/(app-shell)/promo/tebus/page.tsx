@@ -15,7 +15,6 @@ function parseNumberFromCurrency(input: string): number {
   return digits ? parseInt(digits, 10) : 0;
 }
 
-// cost = hpp + overhead, price = harga jual / total harga bayar
 function calcProfitPercent(cost: number, price: number) {
   if (!price) return 0;
   return ((price - cost) / price) * 100;
@@ -34,7 +33,47 @@ function classForPercent(pct: number) {
 }
 
 function formatPercent(pct: number) {
-  return `${Math.round(pct)}%`;
+  const clamped = Math.max(-100, Math.min(300, pct));
+  return `${Math.round(clamped)}%`;
+}
+
+/* ========= AI copy untuk Tebus Murah ========= */
+
+function getTebusInsight(profitPct: number): string {
+  if (!Number.isFinite(profitPct)) profitPct = 0;
+
+  if (profitPct < 5) {
+    return (
+      "Promo Tebus Murah ini terlalu agresif. Margin hampir habis, sebaiknya hanya dipakai " +
+      "untuk momen tertentu (launching / cuci gudang) dan dibatasi kuotanya."
+    );
+  }
+
+  if (profitPct < 15) {
+    return (
+      "Profit paket sangat tipis. Batasi periode promo atau buat syarat minimal pembelian, " +
+      "dan pastikan ada menu lain yang marginnya lebih tinggi untuk di-upsell."
+    );
+  }
+
+  if (profitPct < 30) {
+    return (
+      "Promo masih aman tapi margin mulai menipis. Cocok untuk campaign jangka pendek " +
+      "untuk dorong penjualan menu utama sekaligus mengenalkan produk kedua."
+    );
+  }
+
+  if (profitPct < 50) {
+    return (
+      "Promo Tebus Murah ini cukup sehat. Kamu memberi harga tebus menarik sambil tetap menjaga " +
+      "margin yang nyaman. Bisa dipakai sebagai paket andalan harian atau mingguan."
+    );
+  }
+
+  return (
+    "Promo ini sangat sehat. Margin paket masih tebal walaupun produk kedua ditebus lebih murah, " +
+    "kamu bisa lebih agresif di marketing (iklan, voucher, bundling lebih besar) tanpa takut rugi."
+  );
 }
 
 /* ========= page ========= */
@@ -49,7 +88,6 @@ export default function PromoTebusMurahPage() {
   const [targetInput, setTargetInput] = useState<string>("5000");
   const [aiNote, setAiNote] = useState<string | null>(null);
 
-  // hitung profit dasar per produk buat default & badge
   const listWithProfit = useMemo(() => {
     return list.map((p) => {
       const cost = p.hpp + p.overhead;
@@ -58,7 +96,6 @@ export default function PromoTebusMurahPage() {
     });
   }, [list]);
 
-  // urutkan dari profit terbesar
   const sortedByProfit = useMemo(
     () =>
       [...listWithProfit].sort(
@@ -67,7 +104,6 @@ export default function PromoTebusMurahPage() {
     [listWithProfit]
   );
 
-  // default pilihan: menu1 = paling untung, menu2 = yang kedua (kalau ada)
   useEffect(() => {
     if (!sortedByProfit.length) return;
 
@@ -106,12 +142,12 @@ export default function PromoTebusMurahPage() {
 
   if (!product1 || !product2) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+      <div className="p-6 md:p-8">
         <div className="mx-auto max-w-6xl">
-          <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+          <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
             Kalkulator Promo - Tebus Murah
           </h1>
-          <div className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
+          <div className="mt-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm text-gray-600">
               {loading
                 ? "Memuat daftar menu..."
@@ -123,8 +159,6 @@ export default function PromoTebusMurahPage() {
     );
   }
 
-  /* ===== perhitungan utama ===== */
-
   const costMain = product1.hpp + product1.overhead;
   const costBonus = product2.hpp + product2.overhead;
   const totalCost = costMain + costBonus;
@@ -135,27 +169,18 @@ export default function PromoTebusMurahPage() {
   const afterTax = Math.round(totalPrice * 1.1);
   const onlineFood = Math.round(totalPrice * 1.15);
 
-  // profit masing2 produk (badge di kartu kiri)
   const pct1 = calcProfitPercent(costMain, product1.hargaJual);
   const pct2 = calcProfitPercent(costBonus, product2.hargaJual);
 
   /* ===== Bantuan AI khusus harga tebus ===== */
 
   const handleAiClick = () => {
-    // target margin keseluruhan sekitar 25%
     const desiredMargin = 0.25;
-
     if (!totalCost) return;
 
-    // total harga ideal supaya margin ≈ desiredMargin
     const idealTotalPrice = Math.round(totalCost / (1 - desiredMargin));
-
-    // harga tebus = total ideal - harga produk utama
     let suggested = idealTotalPrice - product1.hargaJual;
 
-    // clamp biar gak ngawur:
-    // - minimal mendekati cost bonus
-    // - maksimal 80% dari harga jual normal produk bonus
     const minTebus = Math.max(0, Math.round(costBonus * 1.05));
     const maxTebus = Math.round(product2.hargaJual * 0.8);
 
@@ -172,25 +197,22 @@ export default function PromoTebusMurahPage() {
     setAiNote(
       `AI menyarankan harga tebus sekitar ${rupiah(
         suggested
-      )} dengan perkiraan profit ${formatPercent(newProfitPct)} untuk paket ini.`
+      )} dengan perkiraan profit ${formatPercent(
+        newProfitPct
+      )} untuk paket ini.`
     );
   };
 
-  /* ========= RENDER ========= */
-
   return (
-    <div className="min-h-screen bg-[#F5F5F5] px-8 pb-10 pt-8">
+    <div className="p-6 md:p-8">
       <div className="mx-auto max-w-6xl">
-        {/* TITLE */}
-        <h1 className="text-[22px] font-semibold leading-[30px] text-gray-900">
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
           Kalkulator Promo - Tebus Murah
         </h1>
 
-        {/* CARD UTAMA */}
-        <div className="mt-6 rounded-[28px] bg-white px-6 py-6 shadow-sm">
-          {/* PILIH MENU 1 & 2 */}
+        <div className="mt-2 rounded-2xl border border-gray-200 bg-white px-6 py-6 shadow-sm">
+          {/* PILIH MENU */}
           <div className="grid gap-4 md:grid-cols-2">
-            {/* Menu 1 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
                 Pilih Menu 1
@@ -213,7 +235,6 @@ export default function PromoTebusMurahPage() {
               </div>
             </div>
 
-            {/* Menu 2 */}
             <div>
               <p className="text-sm font-semibold text-gray-900">
                 Pilih Menu 2
@@ -239,10 +260,8 @@ export default function PromoTebusMurahPage() {
 
           {/* KARTU + HASIL */}
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_minmax(0,1.1fr)]">
-            {/* Dua kartu menu (kiri) */}
             <div className="grid gap-4 md:grid-cols-2">
-              {/* Produk utama */}
-              <div className="rounded-3xl border border-gray-200 bg-white p-5">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="text-lg font-semibold text-gray-900">
                     {product1.name}
@@ -275,8 +294,7 @@ export default function PromoTebusMurahPage() {
                 </div>
               </div>
 
-              {/* Produk tebus murah */}
-              <div className="rounded-3xl border border-gray-200 bg-white p-5">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="text-lg font-semibold text-gray-900">
                     {product2.name}
@@ -310,9 +328,7 @@ export default function PromoTebusMurahPage() {
               </div>
             </div>
 
-            {/* Harga tebus + hasil (kanan) */}
             <div>
-              {/* Harga produk utama */}
               <p className="text-sm font-semibold text-gray-900">
                 Harga Produk Utama
               </p>
@@ -320,7 +336,6 @@ export default function PromoTebusMurahPage() {
                 {rupiah(product1.hargaJual)}
               </p>
 
-              {/* Target harga tebus + AI */}
               <p className="mt-4 text-sm font-semibold text-gray-900">
                 Target Harga Tebus Murah
               </p>
@@ -340,15 +355,14 @@ export default function PromoTebusMurahPage() {
                   onClick={handleAiClick}
                   className="h-11 shrink-0 rounded-full bg-red-600 px-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
                 >
-                  Bantuan AI ➜
+                  BANTUAN AI ➜
                 </button>
               </div>
               {aiNote && (
                 <p className="mt-2 text-[11px] text-gray-500">{aiNote}</p>
               )}
 
-              {/* BOX HASIL MERAH */}
-              <div className="mt-4 rounded-3xl border-2 border-red-500 bg-white p-5">
+              <div className="mt-4 rounded-2xl border-2 border-red-500 bg-white p-5">
                 <p className="text-sm font-semibold text-gray-900">
                   {product1.name}{" "}
                   <span className="text-gray-500">+</span>{" "}
@@ -370,9 +384,7 @@ export default function PromoTebusMurahPage() {
                 </div>
 
                 <p className="mt-3 text-xs leading-relaxed text-gray-600">
-                  Promo Tebus Murah cocok untuk mendorong penjualan produk
-                  kedua. Pastikan harga tebus masih memberikan margin yang
-                  sehat secara keseluruhan.
+                  {getTebusInsight(profitPct)}
                 </p>
 
                 <div className="mt-4 grid gap-4 text-sm text-gray-800 md:grid-cols-2">
@@ -393,7 +405,7 @@ export default function PromoTebusMurahPage() {
             </div>
           </div>
         </div>
-      </div> 
+      </div>
     </div>
   );
 }
